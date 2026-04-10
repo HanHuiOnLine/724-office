@@ -13,3 +13,7 @@ files/
 *.tmp
 *.pcm
 *.tar.gz
+.DS_Store
+.env.local
+# node_modules
+node_modules/

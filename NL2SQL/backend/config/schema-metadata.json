@@ -1,0 +1,1308 @@
+{
+  "_comment": "new_tzpingtai和new_tzpingtai_dwd数据库Schema元数据配置",
+  "version": "1.0.0",
+  "tables": [
+    {
+      "name": "tzpingtai_tz_sdk_log_pf_reg",
+      "name_cn": "平台注册表",
+      "description": "平台注册表，记录用户在平台的注册行为，是最核心的用户来源表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID（0=平台官网注册）"},
+        {"name": "sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式（账号/手机号/微信等）"},
+        {"name": "name", "name_cn": "账号名", "type": "VARCHAR", "description": "账号名"},
+        {"name": "uuid", "name_cn": "第三方唯一值", "type": "VARCHAR", "description": "第三方唯一值"},
+        {"name": "unique_id", "name_cn": "平台唯一值", "type": "VARCHAR", "description": "平台唯一值（注册方式+第三方唯一值+注册游戏ID的MD5）"},
+        {"name": "phone", "name_cn": "手机号", "type": "VARCHAR", "description": "手机号"},
+        {"name": "phone_model", "name_cn": "注册设备信息", "type": "VARCHAR", "description": "注册设备信息"},
+        {"name": "phone_ver", "name_cn": "注册设备系统版本", "type": "VARCHAR", "description": "注册设备系统版本"},
+        {"name": "app_unique_key", "name_cn": "第三方参数唯一值", "type": "VARCHAR", "description": "注册时对应的第三方参数唯一值"},
+        {"name": "ip", "name_cn": "注册IP", "type": "VARCHAR", "description": "注册IP"},
+        {"name": "imei", "name_cn": "注册设备唯一值", "type": "VARCHAR", "description": "注册设备唯一值"},
+        {"name": "pf", "name_cn": "客户端类型", "type": "VARCHAR", "description": "客户端类型（h5/android/ios等）"},
+        {"name": "pro_user_id", "name_cn": "打包用户ID", "type": "VARCHAR", "description": "打包用户ID"},
+        {"name": "tz_tag", "name_cn": "副玩法参数", "type": "VARCHAR", "description": "副玩法参数"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_pf_login",
+      "name_cn": "平台登录表",
+      "description": "平台登录表，记录用户在平台的登录行为，含登录方式和客户端信息",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "sdk_id", "name_cn": "登录方式", "type": "BIGINT", "description": "登录方式（账号/手机号/微信等）"},
+        {"name": "phone_model", "name_cn": "设备信息", "type": "VARCHAR", "description": "设备信息"},
+        {"name": "phone_ver", "name_cn": "设备系统版本", "type": "VARCHAR", "description": "设备系统版本"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "imei", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "pf", "name_cn": "客户端类型", "type": "VARCHAR", "description": "客户端类型（h5/android/ios等）"},
+        {"name": "pro_user_id", "name_cn": "打包用户ID", "type": "VARCHAR", "description": "打包用户ID"},
+        {"name": "login_type", "name_cn": "登录类型", "type": "BIGINT", "description": "登录类型（0=正常登录 1=feed流进入）"},
+        {"name": "tz_tag", "name_cn": "副玩法参数", "type": "VARCHAR", "description": "副玩法参数"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_pf_act",
+      "name_cn": "平台活跃表",
+      "description": "平台活跃表，记录用户在平台层面（非游戏内）的活跃行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "imei", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "pf", "name_cn": "客户端类型", "type": "VARCHAR", "description": "客户端类型（h5/android/ios等）"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_game_reg",
+      "name_cn": "游戏注册表",
+      "description": "平台账号在游戏注册表，记录平台账号在特定游戏中的注册行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "imei", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "phone_model", "name_cn": "手机型号", "type": "VARCHAR", "description": "手机型号"},
+        {"name": "phone_ver", "name_cn": "手机系统版本", "type": "VARCHAR", "description": "手机系统版本"},
+        {"name": "sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式（账号/手机号/微信等）"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_game_act",
+      "name_cn": "游戏活跃表（账号维度）",
+      "description": "平台游戏活跃表（账号维度），记录游戏内的账号活跃行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "phone_model", "name_cn": "手机型号", "type": "VARCHAR", "description": "手机型号"},
+        {"name": "imei", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "pf", "name_cn": "客户端类型", "type": "VARCHAR", "description": "客户端类型（h5/android/ios等）"},
+        {"name": "vip_level", "name_cn": "VIP等级", "type": "BIGINT", "description": "VIP等级"},
+        {"name": "level", "name_cn": "等级", "type": "BIGINT", "description": "等级"},
+        {"name": "system", "name_cn": "操作系统", "type": "VARCHAR", "description": "操作系统"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "msg_type", "name_cn": "消息类型", "type": "BIGINT", "description": "消息类型（1=服务端上报 0=客户端上报）"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_game_act_role",
+      "name_cn": "游戏活跃表（角色维度）",
+      "description": "平台游戏活跃表（角色维度），记录游戏内的角色活跃行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "phone_model", "name_cn": "手机型号", "type": "VARCHAR", "description": "手机型号"},
+        {"name": "imei", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "pf", "name_cn": "客户端类型", "type": "VARCHAR", "description": "客户端类型（h5/android/ios等）"},
+        {"name": "vip_level", "name_cn": "VIP等级", "type": "BIGINT", "description": "VIP等级"},
+        {"name": "level", "name_cn": "等级", "type": "BIGINT", "description": "等级"},
+        {"name": "system", "name_cn": "操作系统", "type": "VARCHAR", "description": "操作系统"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长"},
+        {"name": "msg_type", "name_cn": "消息类型", "type": "BIGINT", "description": "消息类型（1=服务端上报 0=客户端上报）"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_game_create_role",
+      "name_cn": "游戏创角表",
+      "description": "平台创角表，记录玩家在游戏中创建角色的行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "is_scroll", "name_cn": "是否滚服", "type": "VARCHAR", "description": "是否滚服"},
+        {"name": "phone_model", "name_cn": "手机型号", "type": "VARCHAR", "description": "手机型号"},
+        {"name": "imei", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "city", "name_cn": "城市", "type": "VARCHAR", "description": "城市"},
+        {"name": "country", "name_cn": "国家", "type": "VARCHAR", "description": "国家"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "province", "name_cn": "省份", "type": "VARCHAR", "description": "省份"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_pf_order",
+      "name_cn": "平台订单表",
+      "description": "平台订单表，记录所有支付成功的订单明细，是核心流水表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "role_name", "name_cn": "角色名", "type": "VARCHAR", "description": "角色名"},
+        {"name": "real_amount", "name_cn": "实际支付金额", "type": "BIGINT", "description": "实际支付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "total_amount", "name_cn": "总金额", "type": "BIGINT", "description": "总金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "price", "name_cn": "价格", "type": "BIGINT", "description": "价格"},
+        {"name": "buy_num", "name_cn": "购买数量", "type": "BIGINT", "description": "购买数量"},
+        {"name": "goods_id", "name_cn": "商品ID", "type": "BIGINT", "description": "商品ID"},
+        {"name": "goods_name", "name_cn": "商品名称", "type": "VARCHAR", "description": "商品名称"},
+        {"name": "pf_order_id", "name_cn": "平台订单ID", "type": "VARCHAR", "description": "平台订单ID"},
+        {"name": "game_order_id", "name_cn": "游戏订单ID", "type": "VARCHAR", "description": "游戏订单ID"},
+        {"name": "channel_order_id", "name_cn": "渠道订单ID", "type": "VARCHAR", "description": "渠道订单ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "server_name", "name_cn": "区服名称", "type": "VARCHAR", "description": "区服名称"},
+        {"name": "app_unique_key", "name_cn": "第三方参数唯一值", "type": "VARCHAR", "description": "第三方参数唯一值"},
+        {"name": "ext1", "name_cn": "商户号等付费参数", "type": "VARCHAR", "description": "商户号等付费参数"},
+        {"name": "ext2", "name_cn": "支付设备类型等参数", "type": "VARCHAR", "description": "支付设备类型等参数"},
+        {"name": "imei", "name_cn": "设备唯一标识", "type": "VARCHAR", "description": "设备唯一标识"},
+        {"name": "level", "name_cn": "等级", "type": "BIGINT", "description": "等级"},
+        {"name": "sdk_id", "name_cn": "包ID", "type": "BIGINT", "description": "包ID"},
+        {"name": "goods_desc", "name_cn": "商品描述", "type": "VARCHAR", "description": "商品描述"},
+        {"name": "extra", "name_cn": "额外信息", "type": "VARCHAR", "description": "额外信息"},
+        {"name": "fight_value", "name_cn": "战力", "type": "BIGINT", "description": "战力"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长"},
+        {"name": "act_id", "name_cn": "活动ID", "type": "BIGINT", "description": "活动ID"},
+        {"name": "is_inner_order", "name_cn": "是否内部号订单", "type": "BIGINT", "description": "是否内部号订单"},
+        {"name": "pay_channel", "name_cn": "支付方式", "type": "BIGINT", "description": "支付方式（0=无/不明 1=支付宝 2=微信）"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_pf_first_order",
+      "name_cn": "平台首充日志表",
+      "description": "平台首充日志表，记录账号在平台的首次充值",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "real_amount", "name_cn": "实际支付金额", "type": "BIGINT", "description": "实际支付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "total_amount", "name_cn": "总金额", "type": "BIGINT", "description": "总金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "price", "name_cn": "价格", "type": "BIGINT", "description": "价格"},
+        {"name": "buy_num", "name_cn": "购买数量", "type": "BIGINT", "description": "购买数量"},
+        {"name": "goods_id", "name_cn": "商品ID", "type": "BIGINT", "description": "商品ID"},
+        {"name": "pf_order_id", "name_cn": "平台订单ID", "type": "VARCHAR", "description": "平台订单ID"},
+        {"name": "game_order_id", "name_cn": "游戏订单ID", "type": "VARCHAR", "description": "游戏订单ID"},
+        {"name": "channel_order_id", "name_cn": "渠道订单ID", "type": "VARCHAR", "description": "渠道订单ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "app_unique_key", "name_cn": "第三方参数唯一值", "type": "VARCHAR", "description": "第三方参数唯一值"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_game_account_first_order",
+      "name_cn": "游戏账号首充日志表",
+      "description": "平台游戏账号首充日志表，记录账号（非角色维度）的首次充值",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "real_amount", "name_cn": "实际支付金额", "type": "BIGINT", "description": "实际支付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "total_amount", "name_cn": "总金额", "type": "BIGINT", "description": "总金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "price", "name_cn": "价格", "type": "BIGINT", "description": "价格"},
+        {"name": "buy_num", "name_cn": "购买数量", "type": "BIGINT", "description": "购买数量"},
+        {"name": "goods_id", "name_cn": "商品ID", "type": "BIGINT", "description": "商品ID"},
+        {"name": "pf_order_id", "name_cn": "平台订单ID", "type": "VARCHAR", "description": "平台订单ID"},
+        {"name": "game_order_id", "name_cn": "游戏订单ID", "type": "VARCHAR", "description": "游戏订单ID"},
+        {"name": "channel_order_id", "name_cn": "渠道订单ID", "type": "VARCHAR", "description": "渠道订单ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "app_unique_key", "name_cn": "第三方参数唯一值", "type": "VARCHAR", "description": "第三方参数唯一值"},
+        {"name": "imei", "name_cn": "设备唯一标识", "type": "VARCHAR", "description": "设备唯一标识"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_game_role_first_order",
+      "name_cn": "游戏角色首充日志表",
+      "description": "平台游戏角色首充日志表，记录角色维度的首次充值，含首充时的游戏状态",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "role_name", "name_cn": "角色名", "type": "VARCHAR", "description": "角色名"},
+        {"name": "real_amount", "name_cn": "实际支付金额", "type": "BIGINT", "description": "实际支付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "total_amount", "name_cn": "总金额", "type": "BIGINT", "description": "总金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "price", "name_cn": "价格", "type": "BIGINT", "description": "价格"},
+        {"name": "buy_num", "name_cn": "购买数量", "type": "BIGINT", "description": "购买数量"},
+        {"name": "goods_id", "name_cn": "商品ID", "type": "BIGINT", "description": "商品ID"},
+        {"name": "goods_name", "name_cn": "商品名称", "type": "VARCHAR", "description": "商品名称"},
+        {"name": "pf_order_id", "name_cn": "平台订单ID", "type": "VARCHAR", "description": "平台订单ID"},
+        {"name": "game_order_id", "name_cn": "游戏订单ID", "type": "VARCHAR", "description": "游戏订单ID"},
+        {"name": "channel_order_id", "name_cn": "渠道订单ID", "type": "VARCHAR", "description": "渠道订单ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "app_unique_key", "name_cn": "第三方参数唯一值", "type": "VARCHAR", "description": "第三方参数唯一值"},
+        {"name": "level", "name_cn": "首充时等级", "type": "BIGINT", "description": "首充时等级"},
+        {"name": "online_time", "name_cn": "首充时在线时长", "type": "BIGINT", "description": "首充时在线时长"},
+        {"name": "fight_value", "name_cn": "首充时战力", "type": "BIGINT", "description": "首充时战力"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_button",
+      "name_cn": "平台点击表",
+      "description": "平台点击表，记录SDK内用户点击各类按钮的行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "button_id", "name_cn": "按钮ID", "type": "BIGINT", "description": "按钮ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "mac_address", "name_cn": "MAC地址", "type": "VARCHAR", "description": "MAC地址"},
+        {"name": "system", "name_cn": "操作系统", "type": "VARCHAR", "description": "操作系统"},
+        {"name": "version", "name_cn": "系统版本", "type": "VARCHAR", "description": "系统版本"},
+        {"name": "wifi_flag", "name_cn": "网络WIFI标识", "type": "VARCHAR", "description": "网络WIFI标识"},
+        {"name": "phone_model", "name_cn": "手机型号", "type": "VARCHAR", "description": "手机型号"},
+        {"name": "phone_ver", "name_cn": "手机系统版本", "type": "VARCHAR", "description": "手机系统版本"},
+        {"name": "imei", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "uuid", "name_cn": "平台UUID", "type": "VARCHAR", "description": "平台UUID"},
+        {"name": "click_time", "name_cn": "点击时间戳", "type": "BIGINT", "description": "点击时间戳"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "int_ext", "name_cn": "扩展字段（整形）", "type": "BIGINT", "description": "扩展字段（整形）"},
+        {"name": "ext", "name_cn": "扩展字段（字符串）", "type": "VARCHAR", "description": "扩展字段（字符串）"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_pf_action",
+      "name_cn": "平台游戏行为表",
+      "description": "平台游戏行为表，记录平台层面的各类行为事件",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "act_type", "name_cn": "行为ID", "type": "BIGINT", "description": "行为ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "description", "name_cn": "行为内容描述", "type": "VARCHAR", "description": "行为内容描述"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_iaa_action",
+      "name_cn": "IAA行为表",
+      "description": "IAA（广告变现）行为表，记录广告加载、展示、播放等行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "action", "name_cn": "行为", "type": "BIGINT", "description": "行为（1=广告加载成功 2=展示成功 3=展示失败 4=播放完成 5=未播放完成）"},
+        {"name": "slot_id", "name_cn": "广告位ID", "type": "VARCHAR", "description": "广告位ID"},
+        {"name": "event_id", "name_cn": "事件ID", "type": "VARCHAR", "description": "事件ID"},
+        {"name": "ad_type_id", "name_cn": "广告类型ID", "type": "BIGINT", "description": "广告类型ID"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长"},
+        {"name": "level", "name_cn": "等级", "type": "BIGINT", "description": "等级"},
+        {"name": "err_code", "name_cn": "错误码", "type": "BIGINT", "description": "错误码"},
+        {"name": "err_msg", "name_cn": "错误信息", "type": "VARCHAR", "description": "错误信息"}
+      ]
+    },
+    {
+      "name": "tzpingtai_booking_log_button",
+      "name_cn": "预约埋点表",
+      "description": "预约埋点表，记录用户点击预约按钮的行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "button_id", "name_cn": "按钮ID", "type": "BIGINT", "description": "按钮ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "phone_hash", "name_cn": "手机号hash值", "type": "VARCHAR", "description": "手机号hash值"},
+        {"name": "uv_uniq_id", "name_cn": "UV唯一标识", "type": "VARCHAR", "description": "IP+UUID MD5值"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "uuid", "name_cn": "UUID标识", "type": "VARCHAR", "description": "UUID标识"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_ad_report_action",
+      "name_cn": "广点通3.0用户行为上报表",
+      "description": "广点通3.0用户行为上报表，记录广告转化行为上报数据",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "action_id", "name_cn": "行为ID", "type": "BIGINT", "description": "行为ID"},
+        {"name": "action_time", "name_cn": "行为时间戳", "type": "BIGINT", "description": "行为时间戳"},
+        {"name": "report_time", "name_cn": "上报时间戳", "type": "BIGINT", "description": "上报时间戳"},
+        {"name": "report_rmb", "name_cn": "上报金额", "type": "BIGINT", "description": "上报金额"},
+        {"name": "order_id", "name_cn": "上报订单号", "type": "VARCHAR", "description": "上报订单号"},
+        {"name": "tz_account_id", "name_cn": "平台游戏ID", "type": "BIGINT", "description": "平台游戏ID"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_live_active",
+      "name_cn": "直播链接激活日志",
+      "description": "直播链接激活日志，记录直播链接被激活的情况",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "link_id", "name_cn": "链接ID", "type": "BIGINT", "description": "链接ID", "is_primary": true},
+        {"name": "uuid_org", "name_cn": "设备唯一值原值", "type": "VARCHAR", "description": "设备唯一值原值（对应注册表uuid）"},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "active_time", "name_cn": "激活时间戳", "type": "BIGINT", "description": "激活时间戳"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_live_click",
+      "name_cn": "直播链接点击表",
+      "description": "链接点击表，记录直播链接的点击行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "link_id", "name_cn": "链接ID", "type": "BIGINT", "description": "链接ID"},
+        {"name": "ip", "name_cn": "请求IP", "type": "VARCHAR", "description": "请求IP"},
+        {"name": "ua", "name_cn": "浏览器UA", "type": "VARCHAR", "description": "浏览器UA"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_live_register",
+      "name_cn": "直播链接注册日志",
+      "description": "直播链接注册日志，记录通过直播链接注册的用户",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台游戏ID", "type": "BIGINT", "description": "平台游戏ID", "is_primary": true},
+        {"name": "uuid_org", "name_cn": "设备唯一值原值", "type": "VARCHAR", "description": "设备唯一值原值（对应注册表uuid）"},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "link_id", "name_cn": "链接ID", "type": "BIGINT", "description": "链接ID"},
+        {"name": "register_time", "name_cn": "注册时间戳", "type": "BIGINT", "description": "注册时间戳"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_shop_button",
+      "name_cn": "商城埋点表",
+      "description": "商城埋点表，记录用户在商城的点击行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "button_id", "name_cn": "埋点ID", "type": "VARCHAR", "description": "埋点ID", "is_primary": true},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "client_ip", "name_cn": "客户端IP", "type": "VARCHAR", "description": "客户端IP"},
+        {"name": "tz_account_id", "name_cn": "平台游戏ID", "type": "BIGINT", "description": "平台游戏ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "click_time", "name_cn": "点击时间戳", "type": "BIGINT", "description": "点击时间戳"},
+        {"name": "ext", "name_cn": "扩展字段", "type": "VARCHAR", "description": "扩展字段"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_tianzong_button",
+      "name_cn": "天纵SDK埋点表",
+      "description": "天纵SDK埋点表，记录天纵SDK内的用户点击行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值", "is_primary": true},
+        {"name": "button_id", "name_cn": "埋点ID", "type": "VARCHAR", "description": "埋点ID"},
+        {"name": "app_id", "name_cn": "天纵应用ID", "type": "BIGINT", "description": "天纵应用ID"},
+        {"name": "phone_model", "name_cn": "手机型号", "type": "VARCHAR", "description": "手机型号"},
+        {"name": "phone_ver", "name_cn": "手机系统版本", "type": "VARCHAR", "description": "手机系统版本"},
+        {"name": "click_time", "name_cn": "点击时间戳", "type": "BIGINT", "description": "点击时间戳"},
+        {"name": "pt_unique_id", "name_cn": "平台唯一ID", "type": "VARCHAR", "description": "平台唯一ID"},
+        {"name": "client_ip", "name_cn": "客户端IP", "type": "VARCHAR", "description": "客户端IP"},
+        {"name": "app_version_name", "name_cn": "App版本号", "type": "VARCHAR", "description": "App版本号"},
+        {"name": "package_name", "name_cn": "包名", "type": "VARCHAR", "description": "包名"},
+        {"name": "ext", "name_cn": "扩展字段（字符串）", "type": "VARCHAR", "description": "扩展字段（字符串）"},
+        {"name": "int_ext", "name_cn": "扩展字段（整形）", "type": "BIGINT", "description": "扩展字段（整形）"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_tianzong_create_order",
+      "name_cn": "天纵SDK预拉订单日志",
+      "description": "天纵SDK预拉订单日志，记录通过天纵SDK创建订单的过程",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID", "is_primary": true},
+        {"name": "tz_account_id", "name_cn": "平台游戏ID", "type": "BIGINT", "description": "平台游戏ID"},
+        {"name": "method", "name_cn": "支付方式", "type": "VARCHAR", "description": "支付方式"},
+        {"name": "cp_order_id", "name_cn": "聚合层订单号", "type": "VARCHAR", "description": "聚合层订单号"},
+        {"name": "pt_account_id", "name_cn": "天纵平台用户ID", "type": "VARCHAR", "description": "天纵平台用户ID"},
+        {"name": "order_id", "name_cn": "天纵订单号", "type": "VARCHAR", "description": "天纵订单号"},
+        {"name": "order_param", "name_cn": "创单参数", "type": "VARCHAR", "description": "创单参数"},
+        {"name": "pay_back", "name_cn": "创单回包", "type": "VARCHAR", "description": "创单回包"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_tianzong_login",
+      "name_cn": "天纵SDK登录日志",
+      "description": "天纵SDK登录日志，记录通过天纵SDK登录的行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID", "is_primary": true},
+        {"name": "method", "name_cn": "登录方式", "type": "VARCHAR", "description": "登录方式"},
+        {"name": "pt_account_id", "name_cn": "天纵平台用户ID", "type": "VARCHAR", "description": "天纵平台用户ID"},
+        {"name": "client_only", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "login_param", "name_cn": "登录参数", "type": "VARCHAR", "description": "登录参数"},
+        {"name": "ip", "name_cn": "登录IP", "type": "VARCHAR", "description": "登录IP"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_transfer_button",
+      "name_cn": "转端埋点表",
+      "description": "转端埋点，记录用户在转端应用内的点击行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "button_id", "name_cn": "埋点ID", "type": "BIGINT", "description": "埋点ID", "is_primary": true},
+        {"name": "app_id", "name_cn": "转端应用ID", "type": "BIGINT", "description": "转端应用ID"},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "app_version_name", "name_cn": "App版本号", "type": "VARCHAR", "description": "App版本号"},
+        {"name": "package_name", "name_cn": "包名", "type": "VARCHAR", "description": "包名"},
+        {"name": "zd_unique_id", "name_cn": "转端唯一值", "type": "VARCHAR", "description": "转端唯一值"},
+        {"name": "client_ip", "name_cn": "客户端IP", "type": "VARCHAR", "description": "客户端IP"},
+        {"name": "phone_model", "name_cn": "设备型号", "type": "VARCHAR", "description": "设备型号"},
+        {"name": "phone_ver", "name_cn": "设备系统版本", "type": "VARCHAR", "description": "设备系统版本"}
+      ]
+    },
+    {
+      "name": "tzpingtai_log_vst_button_click",
+      "name_cn": "垂直工具埋点日志",
+      "description": "垂直工具埋点日志，记录垂直工具（小程序等）内的用户点击行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "button_id", "name_cn": "按钮ID", "type": "VARCHAR", "description": "按钮ID", "is_primary": true},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "button_name", "name_cn": "埋点名称", "type": "VARCHAR", "description": "埋点名称"},
+        {"name": "wx_app_id", "name_cn": "小程序AppID", "type": "VARCHAR", "description": "小程序AppID"},
+        {"name": "ip", "name_cn": "IP地址", "type": "VARCHAR", "description": "IP地址"},
+        {"name": "vst_account_id", "name_cn": "垂直工具账号ID", "type": "VARCHAR", "description": "垂直工具账号ID"},
+        {"name": "phone", "name_cn": "手机号", "type": "VARCHAR", "description": "手机号"},
+        {"name": "wx_openid", "name_cn": "小程序OpenID", "type": "VARCHAR", "description": "小程序OpenID"},
+        {"name": "wx_unionid", "name_cn": "UnionID", "type": "VARCHAR", "description": "UnionID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "ext", "name_cn": "扩展字段", "type": "VARCHAR", "description": "扩展字段"}
+      ]
+    },
+    {
+      "name": "tzpingtai_real_begin_game_log",
+      "name_cn": "账号真实登录日志",
+      "description": "账号真实登录日志，记录非正常登录方式（如真人核验后）的登录行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台游戏ID", "type": "BIGINT", "description": "平台游戏ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "client_ip", "name_cn": "客户端IP", "type": "VARCHAR", "description": "客户端IP"},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值"},
+        {"name": "system", "name_cn": "客户端系统", "type": "VARCHAR", "description": "客户端系统"},
+        {"name": "phone_model", "name_cn": "客户端手机型号", "type": "VARCHAR", "description": "客户端手机型号"},
+        {"name": "phone_ver", "name_cn": "客户端手机版本", "type": "VARCHAR", "description": "客户端手机版本"},
+        {"name": "ad_tag", "name_cn": "广告参数", "type": "VARCHAR", "description": "广告参数"},
+        {"name": "pro_user_id", "name_cn": "打包用户ID", "type": "VARCHAR", "description": "打包用户ID"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_log_all_chat",
+      "name_cn": "聊天记录表",
+      "description": "聊天记录表，记录游戏内所有聊天内容及敏感词检测结果",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "scene_id", "name_cn": "业务场景ID", "type": "BIGINT", "description": "业务场景ID"},
+        {"name": "main_type", "name_cn": "消息场景", "type": "BIGINT", "description": "消息场景（0=消息 1=昵称）"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "server_name", "name_cn": "区服名称", "type": "VARCHAR", "description": "区服名称"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "role_nick", "name_cn": "角色昵称", "type": "VARCHAR", "description": "角色昵称"},
+        {"name": "role_charge", "name_cn": "角色充值金额", "type": "BIGINT", "description": "角色充值金额"},
+        {"name": "role_level", "name_cn": "角色等级", "type": "BIGINT", "description": "角色等级"},
+        {"name": "role_fv", "name_cn": "角色战力", "type": "BIGINT", "description": "角色战力"},
+        {"name": "ip", "name_cn": "玩家IP", "type": "VARCHAR", "description": "玩家IP"},
+        {"name": "device_id", "name_cn": "玩家设备ID", "type": "VARCHAR", "description": "玩家设备ID"},
+        {"name": "content_text", "name_cn": "消息内容", "type": "VARCHAR", "description": "消息内容"},
+        {"name": "result", "name_cn": "检测结果", "type": "BIGINT", "description": "检测结果（0=正常 1=含敏感词不可发 2=只发送者可见）"},
+        {"name": "to_tz_account_id", "name_cn": "接收方平台ID", "type": "BIGINT", "description": "接收方平台ID（默认0）"},
+        {"name": "to_role_id", "name_cn": "接收方角色ID", "type": "BIGINT", "description": "接收方角色ID（默认0）"},
+        {"name": "to_role_nick", "name_cn": "接收方角色昵称", "type": "VARCHAR", "description": "接收方角色昵称"},
+        {"name": "to_role_level", "name_cn": "接收方角色等级", "type": "BIGINT", "description": "接收方角色等级"},
+        {"name": "to_role_lv", "name_cn": "接收方角色战力", "type": "BIGINT", "description": "接收方角色战力"},
+        {"name": "replace_content", "name_cn": "过滤后的消息内容", "type": "VARCHAR", "description": "过滤后的消息内容"},
+        {"name": "is_inner_account", "name_cn": "是否内部号", "type": "BIGINT", "description": "是否内部号"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_client_active",
+      "name_cn": "平台设备信息上报日志",
+      "description": "平台设备信息上报日志，记录客户端设备的详细信息（IMEI/IDFA/OAID等），用于广告归因",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID（0=平台官网注册）"},
+        {"name": "uuid", "name_cn": "设备唯一值", "type": "VARCHAR", "description": "设备唯一值（前端生成）"},
+        {"name": "imei", "name_cn": "Android设备唯一值", "type": "VARCHAR", "description": "Android设备唯一值"},
+        {"name": "idfa", "name_cn": "苹果IDFA", "type": "VARCHAR", "description": "苹果IDFA"},
+        {"name": "android_id", "name_cn": "安卓设备android_id", "type": "BIGINT", "description": "安卓设备android_id"},
+        {"name": "oaid", "name_cn": "安卓设备oaid", "type": "VARCHAR", "description": "安卓设备oaid"},
+        {"name": "oaid_two", "name_cn": "头条SDK获取的oaid", "type": "BIGINT", "description": "安卓设备对应头条SDK获取的oaid"},
+        {"name": "mac", "name_cn": "MAC地址", "type": "VARCHAR", "description": "MAC地址"},
+        {"name": "ua", "name_cn": "浏览器User-Agent", "type": "BIGINT", "description": "浏览器User-Agent"},
+        {"name": "os", "name_cn": "设备类型", "type": "BIGINT", "description": "设备类型（0=安卓 1=iOS）"},
+        {"name": "ip", "name_cn": "请求IP", "type": "VARCHAR", "description": "请求IP"},
+        {"name": "time_unix", "name_cn": "请求时间戳", "type": "VARCHAR", "description": "请求时间戳（秒级）"},
+        {"name": "ad_info", "name_cn": "携带的广告信息", "type": "BIGINT", "description": "携带的广告信息"},
+        {"name": "token", "name_cn": "Token信息", "type": "VARCHAR", "description": "Token信息"},
+        {"name": "caid1", "name_cn": "CAID1", "type": "VARCHAR", "description": "CAID1"},
+        {"name": "caid1_version", "name_cn": "CAID1版本", "type": "VARCHAR", "description": "CAID1版本"},
+        {"name": "caid2", "name_cn": "CAID2", "type": "VARCHAR", "description": "CAID2"},
+        {"name": "caid2_version", "name_cn": "CAID2版本", "type": "VARCHAR", "description": "CAID2版本"},
+        {"name": "yd_id", "name_cn": "YD_ID", "type": "VARCHAR", "description": "YD_ID"},
+        {"name": "idfv", "name_cn": "iOS设备的IDFV", "type": "VARCHAR", "description": "iOS设备的IDFV"},
+        {"name": "pro_user_id", "name_cn": "打包用户ID", "type": "VARCHAR", "description": "打包用户ID"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_pf_order_pre",
+      "name_cn": "平台预支付订单表",
+      "description": "平台预支付订单表，记录用户发起支付但尚未完成的预支付订单",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID"},
+        {"name": "role_name", "name_cn": "角色名", "type": "VARCHAR", "description": "角色名"},
+        {"name": "total_amount", "name_cn": "总金额", "type": "BIGINT", "description": "总金额"},
+        {"name": "price", "name_cn": "价格", "type": "BIGINT", "description": "价格"},
+        {"name": "buy_num", "name_cn": "购买数量", "type": "BIGINT", "description": "购买数量"},
+        {"name": "goods_id", "name_cn": "商品ID", "type": "BIGINT", "description": "商品ID"},
+        {"name": "goods_name", "name_cn": "商品名称", "type": "VARCHAR", "description": "商品名称"},
+        {"name": "pf_order_id", "name_cn": "平台订单ID", "type": "VARCHAR", "description": "平台订单ID"},
+        {"name": "game_order_id", "name_cn": "游戏订单ID", "type": "VARCHAR", "description": "游戏订单ID"},
+        {"name": "channel_order_id", "name_cn": "渠道订单ID", "type": "VARCHAR", "description": "渠道订单ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "sdk_id", "name_cn": "支付方式ID", "type": "BIGINT", "description": "支付方式ID"},
+        {"name": "server_name", "name_cn": "区服名称", "type": "VARCHAR", "description": "区服名称"},
+        {"name": "app_unique_key", "name_cn": "第三方参数唯一值", "type": "VARCHAR", "description": "第三方参数唯一值"},
+        {"name": "ext1", "name_cn": "商户号等付费参数", "type": "VARCHAR", "description": "商户号等付费参数"},
+        {"name": "ext2", "name_cn": "支付设备类型等参数", "type": "VARCHAR", "description": "支付设备类型等参数"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_smallgame_ad_tag",
+      "name_cn": "小游戏注册携带数据日志",
+      "description": "小游戏注册携带数据日志，记录小游戏注册时携带的广告参数和场景信息",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "open_id", "name_cn": "小游戏OpenID", "type": "VARCHAR", "description": "小游戏OpenID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "ip", "name_cn": "请求IP", "type": "VARCHAR", "description": "请求IP"},
+        {"name": "pf", "name_cn": "客户端类型", "type": "VARCHAR", "description": "客户端类型（h5/android/ios等）"},
+        {"name": "union_id", "name_cn": "UnionID", "type": "VARCHAR", "description": "UnionID（相同主体下唯一）"},
+        {"name": "uuid_org", "name_cn": "UUID原值", "type": "VARCHAR", "description": "UUID原值"},
+        {"name": "ad_tag", "name_cn": "携带的query参数", "type": "VARCHAR", "description": "携带的query参数"},
+        {"name": "scene", "name_cn": "进入小游戏的场景值", "type": "BIGINT", "description": "进入小游戏的场景值"},
+        {"name": "wx_app_id", "name_cn": "小游戏AppID", "type": "VARCHAR", "description": "小游戏AppID"},
+        {"name": "pro_user_id", "name_cn": "打包用户ID", "type": "VARCHAR", "description": "打包用户ID"},
+        {"name": "phone_model", "name_cn": "设备型号", "type": "VARCHAR", "description": "设备型号"},
+        {"name": "sys_ver", "name_cn": "操作系统版本", "type": "VARCHAR", "description": "操作系统版本"},
+        {"name": "wx_ver", "name_cn": "微信版本号", "type": "VARCHAR", "description": "微信版本号"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_smallgame_ad_tag_cgy",
+      "name_cn": "小游戏登录携带数据日志",
+      "description": "小游戏登录携带数据日志，记录小游戏登录时携带的广告参数（与注册表结构相同但记录登录行为）",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "open_id", "name_cn": "小游戏OpenID", "type": "VARCHAR", "description": "小游戏OpenID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "ip", "name_cn": "请求IP", "type": "VARCHAR", "description": "请求IP"},
+        {"name": "pf", "name_cn": "客户端类型", "type": "VARCHAR", "description": "客户端类型（h5/android/ios等）"},
+        {"name": "union_id", "name_cn": "UnionID", "type": "VARCHAR", "description": "UnionID（相同主体下唯一）"},
+        {"name": "uuid_org", "name_cn": "UUID原值", "type": "VARCHAR", "description": "UUID原值"},
+        {"name": "ad_tag", "name_cn": "携带的query参数", "type": "VARCHAR", "description": "携带的query参数"},
+        {"name": "scene", "name_cn": "进入小游戏的场景值", "type": "BIGINT", "description": "进入小游戏的场景值"},
+        {"name": "wx_app_id", "name_cn": "小游戏AppID", "type": "VARCHAR", "description": "小游戏AppID"},
+        {"name": "pro_user_id", "name_cn": "打包用户ID", "type": "VARCHAR", "description": "打包用户ID"},
+        {"name": "phone_model", "name_cn": "设备型号", "type": "VARCHAR", "description": "设备型号"},
+        {"name": "sys_ver", "name_cn": "操作系统版本", "type": "VARCHAR", "description": "操作系统版本"},
+        {"name": "wx_ver", "name_cn": "微信版本号", "type": "VARCHAR", "description": "微信版本号"}
+      ]
+    },
+    {
+      "name": "tzpingtai_tz_sdk_log_subscribe_info",
+      "name_cn": "小游戏订阅日志",
+      "description": "小游戏订阅日志，记录用户对小游戏消息模板的订阅/取消订阅行为",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间（分区键）", "time_granularity": ["hour", "day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "平台帐号ID", "type": "BIGINT", "description": "平台帐号ID", "is_primary": true},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "open_id", "name_cn": "小游戏OpenID", "type": "VARCHAR", "description": "小游戏OpenID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "wx_app_id", "name_cn": "小游戏AppID", "type": "VARCHAR", "description": "小游戏AppID"},
+        {"name": "template_id", "name_cn": "模板ID", "type": "VARCHAR", "description": "模板ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "is_push", "name_cn": "是否同意推送", "type": "BIGINT", "description": "是否同意推送"},
+        {"name": "user_choose", "name_cn": "用户选项", "type": "VARCHAR", "description": "用户选项"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_game_reg",
+      "name_cn": "DWD注册表",
+      "description": "DWD层注册表，包含注册当日付费金额等衍生指标",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "collect_date", "name_cn": "注册日期", "type": "DATE", "description": "注册日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "imei", "name_cn": "平台设备唯一值", "type": "VARCHAR", "description": "平台设备唯一值"},
+        {"name": "sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "sys", "name_cn": "注册客户端", "type": "BIGINT", "description": "注册客户端：0=IOS，1=安卓"},
+        {"name": "link_id", "name_cn": "链接ID", "type": "BIGINT", "description": "链接ID"},
+        {"name": "ad_type", "name_cn": "市场媒体类型", "type": "BIGINT", "description": "市场媒体类型"},
+        {"name": "is_stock", "name_cn": "是否内部账号", "type": "BIGINT", "description": "是否内部账号：1=是，0=否"},
+        {"name": "reg_real_amount", "name_cn": "注册当日账号实付金额", "type": "BIGINT", "description": "注册当日账号实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_total_amount", "name_cn": "注册当日账号应付金额", "type": "BIGINT", "description": "注册当日账号应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_imei_real_amount", "name_cn": "注册当日设备实付金额", "type": "BIGINT", "description": "注册当日设备实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_imei_total_amount", "name_cn": "注册当日设备应付金额", "type": "BIGINT", "description": "注册当日设备应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_act",
+      "name_cn": "DWD活跃表",
+      "description": "DWD层活跃表，包含注册信息、创角信息、首充信息等维度",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "collect_date", "name_cn": "活跃日期", "type": "DATE", "description": "活跃日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "msg_type", "name_cn": "消息类型", "type": "BIGINT", "description": "消息类型：0=服务端上报，1=客户端上报"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "role_level", "name_cn": "角色等级", "type": "BIGINT", "description": "角色等级"},
+        {"name": "vip_level", "name_cn": "VIP等级", "type": "BIGINT", "description": "VIP等级"},
+        {"name": "reg_game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID"},
+        {"name": "reg_channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "reg_time", "name_cn": "注册时间", "type": "DATETIME", "description": "注册时间"},
+        {"name": "reg_imei", "name_cn": "注册平台设备唯一值", "type": "VARCHAR", "description": "注册平台设备唯一值"},
+        {"name": "reg_sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "reg_sys", "name_cn": "注册客户端", "type": "BIGINT", "description": "注册客户端：0=安卓，1=IOS"},
+        {"name": "reg_link_id", "name_cn": "注册链接ID", "type": "BIGINT", "description": "注册链接ID"},
+        {"name": "reg_ad_type", "name_cn": "注册市场媒体类型", "type": "BIGINT", "description": "注册市场媒体类型"},
+        {"name": "account_is_stock", "name_cn": "是否内部账号", "type": "BIGINT", "description": "是否内部账号: 1=是，0=否"},
+        {"name": "account_first_order_date", "name_cn": "账号首充日期", "type": "DATE", "description": "账号首充日期"},
+        {"name": "create_role_time", "name_cn": "创角时间", "type": "DATETIME", "description": "创角时间"},
+        {"name": "create_role_server_id", "name_cn": "创角区服", "type": "BIGINT", "description": "创角区服"},
+        {"name": "create_server_open_time", "name_cn": "创角开服时间", "type": "DATETIME", "description": "创角开服时间"},
+        {"name": "role_is_scroll", "name_cn": "是否滚服", "type": "BIGINT", "description": "是否滚服：1=是，0=否"},
+        {"name": "role_first_order_date", "name_cn": "角色首充日期", "type": "DATE", "description": "角色首充日期"},
+        {"name": "server_open_time", "name_cn": "开服时间", "type": "DATETIME", "description": "开服时间"}
+      ]
+    },
+    {
+      "name": "dwd_account_act_di",
+      "name_cn": "账号活跃表",
+      "description": "账号活跃表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "collect_date", "name_cn": "活跃日期", "type": "DATE", "description": "活跃日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "last_login_time", "name_cn": "最后登录时间", "type": "DATETIME", "description": "最后登录时间"},
+        {"name": "last_act_time", "name_cn": "最后活跃时间", "type": "DATETIME", "description": "最后活跃时间"},
+        {"name": "max_vip_level", "name_cn": "最高VIP等级", "type": "BIGINT", "description": "最高VIP等级"},
+        {"name": "max_level", "name_cn": "最高等级", "type": "BIGINT", "description": "最高等级"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]}
+      ]
+    },
+    {
+      "name": "dwd_account_reg_di",
+      "name_cn": "账号注册表",
+      "description": "注册表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "collect_date", "name_cn": "注册日期", "type": "DATE", "description": "注册日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "channel_attr_id", "name_cn": "注册渠道属性ID", "type": "BIGINT", "description": "注册渠道属性ID"},
+        {"name": "imei", "name_cn": "平台设备唯一值", "type": "VARCHAR", "description": "平台设备唯一值"},
+        {"name": "sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "account_attr", "name_cn": "账号属性", "type": "BIGINT", "description": "账号属性：1=内部号，0=正常号"}
+      ]
+    },
+    {
+      "name": "dwd_role_act_di",
+      "name_cn": "角色活跃表",
+      "description": "角色活跃表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "collect_date", "name_cn": "活跃日期", "type": "DATE", "description": "活跃日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "last_login_time", "name_cn": "最后登录时间", "type": "DATETIME", "description": "最后登录时间"},
+        {"name": "last_act_time", "name_cn": "最后活跃时间", "type": "DATETIME", "description": "最后活跃时间"},
+        {"name": "max_vip_level", "name_cn": "最高VIP等级", "type": "BIGINT", "description": "最高VIP等级"},
+        {"name": "max_level", "name_cn": "最高等级", "type": "BIGINT", "description": "最高等级"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]}
+      ]
+    },
+    {
+      "name": "dwd_role_create_di",
+      "name_cn": "角色创角表",
+      "description": "创角表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "collect_date", "name_cn": "创角日期", "type": "DATE", "description": "创角日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "is_scroll", "name_cn": "是否滚服", "type": "BIGINT", "description": "是否滚服：1=是，0=否"}
+      ]
+    },
+    {
+      "name": "dwd_role_order_di",
+      "name_cn": "角色付费表",
+      "description": "角色付费表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "collect_date", "name_cn": "订单日期", "type": "DATE", "description": "订单日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "real_amt", "name_cn": "实付金额", "type": "BIGINT", "description": "实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "total_amt", "name_cn": "应付金额", "type": "BIGINT", "description": "应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "max_amt", "name_cn": "最高实付金额", "type": "BIGINT", "description": "最高实付金额"},
+        {"name": "order_cnt", "name_cn": "付费次数", "type": "BIGINT", "description": "付费次数", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "last_recharge_time", "name_cn": "最后充值时间", "type": "DATETIME", "description": "最后充值时间"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_order",
+      "name_cn": "DWD订单表",
+      "description": "订单表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "pf_order_id", "name_cn": "订单ID", "type": "VARCHAR", "description": "订单ID", "is_primary": true},
+        {"name": "collect_date", "name_cn": "下单日期", "type": "DATE", "description": "下单日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "pay_sdk_id", "name_cn": "支付sdk_id", "type": "BIGINT", "description": "支付sdk_id"},
+        {"name": "pay_channel", "name_cn": "支付方式", "type": "BIGINT", "description": "支付方式"},
+        {"name": "mch_id", "name_cn": "商户号", "type": "VARCHAR", "description": "商户号"},
+        {"name": "goods_id", "name_cn": "商品ID", "type": "BIGINT", "description": "商品ID"},
+        {"name": "real_amount", "name_cn": "实付金额", "type": "BIGINT", "description": "实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "total_amount", "name_cn": "应付金额", "type": "BIGINT", "description": "应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "server_open_time", "name_cn": "开服时间", "type": "DATETIME", "description": "开服时间"},
+        {"name": "reg_game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID"},
+        {"name": "reg_channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "reg_time", "name_cn": "注册时间", "type": "DATETIME", "description": "注册时间"},
+        {"name": "reg_imei", "name_cn": "注册平台设备唯一值", "type": "VARCHAR", "description": "注册平台设备唯一值"},
+        {"name": "reg_sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "reg_sys", "name_cn": "注册客户端", "type": "BIGINT", "description": "注册客户端：0=安卓，1=IOS"},
+        {"name": "reg_link_id", "name_cn": "注册链接ID", "type": "BIGINT", "description": "注册链接ID"},
+        {"name": "reg_ad_type", "name_cn": "注册市场媒体类型", "type": "BIGINT", "description": "注册市场媒体类型"},
+        {"name": "account_is_stock", "name_cn": "是否内部账号", "type": "BIGINT", "description": "是否内部账号：1=是，0=否"},
+        {"name": "account_first_order_date", "name_cn": "账号首充日期", "type": "DATE", "description": "账号首充日期"},
+        {"name": "account_first_order_channel_id", "name_cn": "账号首充渠道ID", "type": "BIGINT", "description": "账号首充渠道ID"},
+        {"name": "reg_real_amount", "name_cn": "注册当日账号实付金额", "type": "BIGINT", "description": "注册当日账号实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_total_amount", "name_cn": "注册当日账号应付金额", "type": "BIGINT", "description": "注册当日账号应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_imei_real_amount", "name_cn": "注册当日设备实付金额", "type": "BIGINT", "description": "注册当日设备实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_imei_total_amount", "name_cn": "注册当日设备应付金额", "type": "BIGINT", "description": "注册当日设备应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "create_role_time", "name_cn": "创角时间", "type": "DATETIME", "description": "创角时间"},
+        {"name": "create_role_server_id", "name_cn": "创角区服", "type": "BIGINT", "description": "创角区服"},
+        {"name": "create_server_open_time", "name_cn": "创角开服时间", "type": "DATETIME", "description": "创角开服时间"},
+        {"name": "role_is_scroll", "name_cn": "是否滚服", "type": "BIGINT", "description": "是否滚服：1=是，0=否"},
+        {"name": "role_first_order_date", "name_cn": "角色首充日期", "type": "DATE", "description": "角色首充日期"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_create_role",
+      "name_cn": "DWD创角表",
+      "description": "创角表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "collect_date", "name_cn": "创角日期", "type": "DATE", "description": "创角日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "is_scroll", "name_cn": "是否滚服", "type": "BIGINT", "description": "是否滚服：1=是，0=否"},
+        {"name": "reg_game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID"},
+        {"name": "reg_channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "reg_time", "name_cn": "注册时间", "type": "DATETIME", "description": "注册时间"},
+        {"name": "reg_imei", "name_cn": "注册平台设备唯一值", "type": "VARCHAR", "description": "注册平台设备唯一值"},
+        {"name": "reg_sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "reg_sys", "name_cn": "注册客户端", "type": "BIGINT", "description": "注册客户端：0=安卓，1=IOS"},
+        {"name": "reg_link_id", "name_cn": "注册链接ID", "type": "BIGINT", "description": "注册链接ID"},
+        {"name": "reg_ad_type", "name_cn": "注册市场媒体类型", "type": "BIGINT", "description": "注册市场媒体类型"},
+        {"name": "account_is_stock", "name_cn": "是否内部账号", "type": "BIGINT", "description": "是否内部账号: 1=是，0=否"},
+        {"name": "server_open_time", "name_cn": "开服时间", "type": "DATETIME", "description": "开服时间"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_role_act",
+      "name_cn": "DWD角色活跃表",
+      "description": "角色活跃表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "collect_date", "name_cn": "活跃日期", "type": "DATE", "description": "活跃日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_server_id", "name_cn": "区服ID", "type": "BIGINT", "description": "区服ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "msg_type", "name_cn": "消息类型", "type": "BIGINT", "description": "消息类型：0=服务端上报，1=客户端上报"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "role_level", "name_cn": "角色等级", "type": "BIGINT", "description": "角色等级"},
+        {"name": "vip_level", "name_cn": "VIP等级", "type": "BIGINT", "description": "VIP等级"},
+        {"name": "reg_game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID"},
+        {"name": "reg_channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "reg_time", "name_cn": "注册时间", "type": "DATETIME", "description": "注册时间"},
+        {"name": "reg_imei", "name_cn": "注册平台设备唯一值", "type": "VARCHAR", "description": "注册平台设备唯一值"},
+        {"name": "reg_sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "reg_sys", "name_cn": "注册客户端", "type": "BIGINT", "description": "注册客户端：0=安卓，1=IOS"},
+        {"name": "reg_link_id", "name_cn": "注册链接ID", "type": "BIGINT", "description": "注册链接ID"},
+        {"name": "reg_ad_type", "name_cn": "注册市场媒体类型", "type": "BIGINT", "description": "注册市场媒体类型"},
+        {"name": "account_is_stock", "name_cn": "是否内部账号", "type": "BIGINT", "description": "是否内部账号: 1=是，0=否"},
+        {"name": "create_role_time", "name_cn": "创角时间", "type": "DATETIME", "description": "创角时间"},
+        {"name": "create_role_server_id", "name_cn": "创角区服", "type": "BIGINT", "description": "创角区服"},
+        {"name": "role_is_scroll", "name_cn": "是否滚服", "type": "BIGINT", "description": "是否滚服：1=是，0=否"},
+        {"name": "role_first_order_date", "name_cn": "角色首充日期", "type": "DATE", "description": "角色首充日期"},
+        {"name": "server_open_time", "name_cn": "开服时间", "type": "DATETIME", "description": "开服时间"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_account_act",
+      "name_cn": "DWD账号活跃表",
+      "description": "账号活跃表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "collect_date", "name_cn": "活跃日期", "type": "DATE", "description": "活跃日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "msg_type", "name_cn": "消息类型", "type": "BIGINT", "description": "消息类型：0=服务端上报，1=客户端上报"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID"},
+        {"name": "reg_channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "reg_time", "name_cn": "注册时间", "type": "DATETIME", "description": "注册时间"},
+        {"name": "reg_imei", "name_cn": "注册平台设备唯一值", "type": "VARCHAR", "description": "注册平台设备唯一值"},
+        {"name": "reg_sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "reg_sys", "name_cn": "注册客户端", "type": "BIGINT", "description": "注册客户端：0=安卓，1=IOS"},
+        {"name": "reg_link_id", "name_cn": "注册链接ID", "type": "BIGINT", "description": "注册链接ID"},
+        {"name": "reg_ad_type", "name_cn": "注册市场媒体类型", "type": "BIGINT", "description": "注册市场媒体类型"},
+        {"name": "account_is_stock", "name_cn": "是否内部账号", "type": "BIGINT", "description": "是否内部账号: 1=是，0=否"},
+        {"name": "account_first_order_date", "name_cn": "账号首充日期", "type": "DATE", "description": "账号首充日期"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_account_order_td",
+      "name_cn": "DWD账号付费表",
+      "description": "账号付费表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "cur_date_last_time", "name_cn": "今日最后付费时间", "type": "DATETIME", "description": "今日最后付费时间"},
+        {"name": "cur_date_amt", "name_cn": "今日累计付费金额", "type": "BIGINT", "description": "今日累计付费金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "before_last_time", "name_cn": "今日前最后付费时间", "type": "DATETIME", "description": "今日前最后付费时间"},
+        {"name": "before_max_day_amt", "name_cn": "今日前最大日累计付费金额", "type": "BIGINT", "description": "今日前最大日累计付费金额"},
+        {"name": "before_cum_amt", "name_cn": "今日前累计付费金额", "type": "BIGINT", "description": "今日前累计付费金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_role_order_td",
+      "name_cn": "DWD角色付费表",
+      "description": "角色付费表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID"},
+        {"name": "cur_date_last_time", "name_cn": "今日最后付费时间", "type": "DATETIME", "description": "今日最后付费时间"},
+        {"name": "cur_date_amt", "name_cn": "今日累计付费金额", "type": "BIGINT", "description": "今日累计付费金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "before_last_time", "name_cn": "今日前最后付费时间", "type": "DATETIME", "description": "今日前最后付费时间"},
+        {"name": "before_max_day_amt", "name_cn": "今日前最大日累计付费金额", "type": "BIGINT", "description": "今日前最大日累计付费金额"},
+        {"name": "before_cum_amt", "name_cn": "今日前累计付费金额", "type": "BIGINT", "description": "今日前累计付费金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_hour_act",
+      "name_cn": "DWD小时活跃表",
+      "description": "小时活跃表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "collect_date", "name_cn": "活跃日期", "type": "DATE", "description": "活跃日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "collect_hour", "name_cn": "活跃小时", "type": "BIGINT", "description": "活跃小时"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID", "is_primary": true},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "role_id", "name_cn": "角色ID", "type": "BIGINT", "description": "角色ID"},
+        {"name": "channel_id", "name_cn": "活跃渠道ID", "type": "BIGINT", "description": "活跃渠道ID"},
+        {"name": "tz_server_id", "name_cn": "活跃区服ID", "type": "BIGINT", "description": "活跃区服ID"},
+        {"name": "online_time", "name_cn": "在线时长", "type": "BIGINT", "description": "在线时长", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "role_level", "name_cn": "角色等级", "type": "BIGINT", "description": "角色等级"},
+        {"name": "vip_level", "name_cn": "VIP等级", "type": "BIGINT", "description": "VIP等级"},
+        {"name": "server_open_time", "name_cn": "开服时间", "type": "DATETIME", "description": "开服时间"},
+        {"name": "reg_game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID"},
+        {"name": "reg_channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "reg_time", "name_cn": "注册时间", "type": "DATETIME", "description": "注册时间"},
+        {"name": "reg_imei", "name_cn": "注册平台设备唯一值", "type": "VARCHAR", "description": "注册平台设备唯一值"},
+        {"name": "reg_sdk_id", "name_cn": "注册方式", "type": "BIGINT", "description": "注册方式：账号、手机号、微信等"},
+        {"name": "reg_sys", "name_cn": "注册客户端", "type": "BIGINT", "description": "注册客户端：0=安卓，1=IOS"},
+        {"name": "reg_link_id", "name_cn": "注册链接ID", "type": "BIGINT", "description": "注册链接ID"},
+        {"name": "reg_ad_type", "name_cn": "注册市场媒体类型", "type": "BIGINT", "description": "注册市场媒体类型"},
+        {"name": "account_is_stock", "name_cn": "是否内部账号", "type": "BIGINT", "description": "是否内部账号: 1=是，0=否"},
+        {"name": "account_first_order_date", "name_cn": "账号首充日期", "type": "DATE", "description": "账号首充日期"},
+        {"name": "reg_real_amount", "name_cn": "注册当日账号实付金额", "type": "BIGINT", "description": "注册当日账号实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_total_amount", "name_cn": "注册当日账号应付金额", "type": "BIGINT", "description": "注册当日账号应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_imei_real_amount", "name_cn": "注册当日设备实付金额", "type": "BIGINT", "description": "注册当日设备实付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "reg_imei_total_amount", "name_cn": "注册当日设备应付金额", "type": "BIGINT", "description": "注册当日设备应付金额", "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]},
+        {"name": "create_role_time", "name_cn": "创角时间", "type": "DATETIME", "description": "创角时间"},
+        {"name": "create_role_server_id", "name_cn": "创角区服", "type": "BIGINT", "description": "创角区服"},
+        {"name": "create_server_open_time", "name_cn": "创角开服时间", "type": "DATETIME", "description": "创角开服时间"},
+        {"name": "role_is_scroll", "name_cn": "是否滚服", "type": "BIGINT", "description": "是否滚服：1=是，0=否"},
+        {"name": "role_first_order_date", "name_cn": "角色首充日期", "type": "DATE", "description": "角色首充日期"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_device_reg",
+      "name_cn": "DWD设备注册表",
+      "description": "设备注册表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "imei", "name_cn": "设备", "type": "VARCHAR", "description": "设备", "is_primary": true},
+        {"name": "collect_date", "name_cn": "创建日期", "type": "DATE", "description": "创建日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "ad_type", "name_cn": "媒体类型", "type": "BIGINT", "description": "媒体类型"},
+        {"name": "tz_account_id", "name_cn": "账号ID", "type": "BIGINT", "description": "账号ID"}
+      ]
+    },
+    {
+      "name": "dwd_tzpingtai_device_act",
+      "name_cn": "DWD设备活跃表",
+      "description": "设备活跃表",
+      "fields": [
+        {"name": "sf_id", "name_cn": "唯一ID", "type": "BIGINT", "description": "雪花ID，全局唯一"},
+        {"name": "create_time", "name_cn": "创建时间", "type": "DATETIME", "description": "创建时间"},
+        {"name": "collect_date", "name_cn": "活跃日期", "type": "DATE", "description": "活跃日期", "time_granularity": ["day", "week", "month", "year"]},
+        {"name": "game_id", "name_cn": "游戏ID", "type": "BIGINT", "description": "游戏ID"},
+        {"name": "channel_id", "name_cn": "渠道ID", "type": "BIGINT", "description": "渠道ID"},
+        {"name": "imei", "name_cn": "设备", "type": "VARCHAR", "description": "设备", "is_primary": true},
+        {"name": "reg_game_id", "name_cn": "注册游戏ID", "type": "BIGINT", "description": "注册游戏ID"},
+        {"name": "reg_channel_id", "name_cn": "注册渠道ID", "type": "BIGINT", "description": "注册渠道ID"},
+        {"name": "reg_time", "name_cn": "注册时间", "type": "DATETIME", "description": "注册时间"},
+        {"name": "reg_ad_type", "name_cn": "注册媒体类型", "type": "BIGINT", "description": "注册媒体类型"},
+        {"name": "first_order_date", "name_cn": "首次付费日期", "type": "DATE", "description": "首次付费日期"}
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from_table": "tzpingtai_tz_sdk_log_pf_reg",
+      "from_field": "tz_account_id",
+      "to_table": "tzpingtai_tz_sdk_log_pf_login",
+      "to_field": "tz_account_id",
+      "relation_type": "one_to_many",
+      "description": "平台注册表与登录表关联"
+    },
+    {
+      "from_table": "tzpingtai_tz_sdk_log_pf_reg",
+      "from_field": "tz_account_id",
+      "to_table": "tzpingtai_tz_sdk_log_game_reg",
+      "to_field": "tz_account_id",
+      "relation_type": "one_to_many",
+      "description": "平台注册表与游戏注册表关联"
+    },
+    {
+      "from_table": "tzpingtai_tz_sdk_log_pf_reg",
+      "from_field": "tz_account_id",
+      "to_table": "tzpingtai_tz_sdk_log_pf_order",
+      "to_field": "tz_account_id",
+      "relation_type": "one_to_many",
+      "description": "平台注册表与订单表关联"
+    },
+    {
+      "from_table": "tzpingtai_tz_sdk_log_game_reg",
+      "from_field": "tz_account_id",
+      "to_table": "tzpingtai_tz_sdk_log_game_create_role",
+      "to_field": "tz_account_id",
+      "relation_type": "one_to_many",
+      "description": "游戏注册表与创角表关联"
+    },
+    {
+      "from_table": "tzpingtai_tz_sdk_log_game_create_role",
+      "from_field": "role_id",
+      "to_table": "tzpingtai_tz_sdk_log_game_act_role",
+      "to_field": "role_id",
+      "relation_type": "one_to_many",
+      "description": "创角表与角色活跃表关联"
+    },
+    {
+      "from_table": "tzpingtai_tz_sdk_log_game_create_role",
+      "from_field": "role_id",
+      "to_table": "tzpingtai_tz_sdk_log_pf_order",
+      "to_field": "role_id",
+      "relation_type": "one_to_many",
+      "description": "创角表与订单表关联"
+    },
+    {
+      "from_table": "dwd_tzpingtai_game_reg",
+      "from_field": "tz_account_id",
+      "to_table": "dwd_tzpingtai_act",
+      "to_field": "tz_account_id",
+      "relation_type": "one_to_many",
+      "description": "DWD注册表与活跃表关联"
+    },
+    {
+      "from_table": "dwd_tzpingtai_game_reg",
+      "from_field": "tz_account_id",
+      "to_table": "dwd_tzpingtai_order",
+      "to_field": "tz_account_id",
+      "relation_type": "one_to_many",
+      "description": "DWD注册表与订单表关联"
+    }
+  ],
+  "metrics": [
+    {
+      "name": "reg_user_count",
+      "name_cn": "注册用户数",
+      "description": "注册用户数（按账号去重）",
+      "table": "tzpingtai_tz_sdk_log_pf_reg",
+      "field": "tz_account_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "reg_device_count",
+      "name_cn": "注册设备数",
+      "description": "注册设备数（按IMEI去重）",
+      "table": "tzpingtai_tz_sdk_log_pf_reg",
+      "field": "imei",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "login_user_count",
+      "name_cn": "登录用户数",
+      "description": "登录用户数",
+      "table": "tzpingtai_tz_sdk_log_pf_login",
+      "field": "tz_account_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "dau",
+      "name_cn": "日活跃用户数",
+      "description": "日活跃用户数（DAU）",
+      "table": "tzpingtai_tz_sdk_log_pf_act",
+      "field": "tz_account_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "revenue",
+      "name_cn": "收入金额",
+      "description": "实际支付金额总和",
+      "table": "tzpingtai_tz_sdk_log_pf_order",
+      "field": "real_amount",
+      "aggregation": "SUM",
+      "time_field": "create_time"
+    },
+    {
+      "name": "pay_user_count",
+      "name_cn": "付费用户数",
+      "description": "付费用户数（按账号去重）",
+      "table": "tzpingtai_tz_sdk_log_pf_order",
+      "field": "tz_account_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "pay_order_count",
+      "name_cn": "付费订单数",
+      "description": "付费订单总数",
+      "table": "tzpingtai_tz_sdk_log_pf_order",
+      "field": "sf_id",
+      "aggregation": "COUNT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "create_role_count",
+      "name_cn": "创角数",
+      "description": "角色创建数量",
+      "table": "tzpingtai_tz_sdk_log_game_create_role",
+      "field": "role_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "online_time_total",
+      "name_cn": "总在线时长",
+      "description": "在线时长总和（分钟）",
+      "table": "tzpingtai_tz_sdk_log_game_act",
+      "field": "online_time",
+      "aggregation": "SUM",
+      "time_field": "create_time"
+    },
+    {
+      "name": "first_pay_user_count",
+      "name_cn": "首充用户数",
+      "description": "首次充值用户数",
+      "table": "tzpingtai_tz_sdk_log_pf_first_order",
+      "field": "tz_account_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "create_time"
+    },
+    {
+      "name": "dwd_reg_user_count",
+      "name_cn": "DWD注册用户数",
+      "description": "DWD层注册用户数",
+      "table": "dwd_tzpingtai_game_reg",
+      "field": "tz_account_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "collect_date"
+    },
+    {
+      "name": "dwd_dau",
+      "name_cn": "DWD日活跃用户数",
+      "description": "DWD层日活跃用户数",
+      "table": "dwd_tzpingtai_act",
+      "field": "tz_account_id",
+      "aggregation": "COUNT_DISTINCT",
+      "time_field": "collect_date"
+    },
+    {
+      "name": "dwd_revenue",
+      "name_cn": "DWD收入金额",
+      "description": "DWD层实际支付金额总和",
+      "table": "dwd_tzpingtai_order",
+      "field": "real_amount",
+      "aggregation": "SUM",
+      "time_field": "collect_date"
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "game",
+      "name_cn": "游戏",
+      "description": "游戏维度",
+      "fields": [
+        {"table": "tzpingtai_tz_sdk_log_pf_reg", "field": "game_id", "name_cn": "注册游戏ID"},
+        {"table": "tzpingtai_tz_sdk_log_pf_login", "field": "game_id", "name_cn": "游戏ID"},
+        {"table": "tzpingtai_tz_sdk_log_pf_order", "field": "game_id", "name_cn": "游戏ID"},
+        {"table": "dwd_tzpingtai_game_reg", "field": "game_id", "name_cn": "游戏ID"},
+        {"table": "dwd_tzpingtai_act", "field": "game_id", "name_cn": "游戏ID"}
+      ]
+    },
+    {
+      "name": "channel",
+      "name_cn": "渠道",
+      "description": "渠道维度",
+      "fields": [
+        {"table": "tzpingtai_tz_sdk_log_pf_reg", "field": "channel_id", "name_cn": "渠道ID"},
+        {"table": "tzpingtai_tz_sdk_log_pf_login", "field": "channel_id", "name_cn": "渠道ID"},
+        {"table": "tzpingtai_tz_sdk_log_pf_order", "field": "channel_id", "name_cn": "渠道ID"},
+        {"table": "dwd_tzpingtai_game_reg", "field": "channel_id", "name_cn": "渠道ID"},
+        {"table": "dwd_tzpingtai_act", "field": "channel_id", "name_cn": "渠道ID"}
+      ]
+    },
+    {
+      "name": "time",
+      "name_cn": "时间",
+      "description": "时间维度",
+      "fields": [
+        {"table": "tzpingtai_tz_sdk_log_pf_reg", "field": "create_time", "name_cn": "创建时间", "granularity": ["hour", "day", "week", "month", "year"]},
+        {"table": "tzpingtai_tz_sdk_log_pf_login", "field": "create_time", "name_cn": "创建时间", "granularity": ["hour", "day", "week", "month", "year"]},
+        {"table": "tzpingtai_tz_sdk_log_pf_order", "field": "create_time", "name_cn": "创建时间", "granularity": ["hour", "day", "week", "month", "year"]},
+        {"table": "dwd_tzpingtai_game_reg", "field": "collect_date", "name_cn": "注册日期", "granularity": ["day", "week", "month", "year"]},
+        {"table": "dwd_tzpingtai_act", "field": "collect_date", "name_cn": "活跃日期", "granularity": ["day", "week", "month", "year"]}
+      ]
+    },
+    {
+      "name": "device",
+      "name_cn": "设备",
+      "description": "设备维度",
+      "fields": [
+        {"table": "tzpingtai_tz_sdk_log_pf_reg", "field": "pf", "name_cn": "客户端类型"},
+        {"table": "tzpingtai_tz_sdk_log_pf_reg", "field": "phone_model", "name_cn": "设备型号"},
+        {"table": "tzpingtai_tz_sdk_log_pf_reg", "field": "sdk_id", "name_cn": "注册方式"},
+        {"table": "dwd_tzpingtai_game_reg", "field": "sys", "name_cn": "注册客户端"}
+      ]
+    },
+    {
+      "name": "user",
+      "name_cn": "用户",
+      "description": "用户维度",
+      "fields": [
+        {"table": "tzpingtai_tz_sdk_log_pf_reg", "field": "tz_account_id", "name_cn": "平台帐号ID"},
+        {"table": "tzpingtai_tz_sdk_log_game_create_role", "field": "role_id", "name_cn": "角色ID"},
+        {"table": "dwd_tzpingtai_game_reg", "field": "tz_account_id", "name_cn": "账号ID"},
+        {"table": "dwd_tzpingtai_act", "field": "role_id", "name_cn": "角色ID"}
+      ]
+    }
+  ]
+}

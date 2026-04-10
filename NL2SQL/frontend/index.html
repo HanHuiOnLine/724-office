@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- 
+  NL2SQL前端入口HTML文件
+  这是单页应用(SPA)的入口点，Vue应用将挂载到#app元素上
+-->
+<html lang="zh-CN">
+<head>
+  <!-- 字符编码 -->
+  <meta charset="UTF-8">
+  <!-- 视口设置，适配移动端 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 页面标题 -->
+  <title>自然语言提数工具</title>
+  <!-- 页面描述 -->
+  <meta name="description" content="通过自然语言查询数据，智能生成SQL">
+  <!-- 网站图标 -->
+  <link rel="icon" type="image/svg+xml" href="/vite.svg">
+</head>
+<body>
+  <!-- 
+    Vue应用挂载点
+    应用启动后，Vue将接管这个元素并渲染整个应用
+  -->
+  <div id="app"></div>
+  
+  <!-- 
+    引入主入口JS文件
+    type="module"表示使用ES模块
+  -->
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

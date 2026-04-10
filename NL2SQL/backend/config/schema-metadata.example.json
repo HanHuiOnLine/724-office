@@ -1,0 +1,327 @@
+{
+  "_comment": "SR系统Schema元数据配置示例，根据实际数据库结构调整",
+  "version": "1.0.0",
+  "tables": [
+    {
+      "name": "sales_order",
+      "name_cn": "销售订单表",
+      "description": "记录所有销售订单的主表，包含订单基本信息、金额、状态等",
+      "fields": [
+        {
+          "name": "order_id",
+          "name_cn": "订单ID",
+          "type": "VARCHAR(32)",
+          "description": "订单唯一标识，主键",
+          "is_primary": true
+        },
+        {
+          "name": "order_no",
+          "name_cn": "订单编号",
+          "type": "VARCHAR(64)",
+          "description": "对外展示的订单编号"
+        },
+        {
+          "name": "user_id",
+          "name_cn": "用户ID",
+          "type": "VARCHAR(32)",
+          "description": "下单用户ID，关联users表",
+          "foreign_key": "users.user_id"
+        },
+        {
+          "name": "order_amount",
+          "name_cn": "订单金额",
+          "type": "DECIMAL(18,2)",
+          "description": "订单总金额，单位元",
+          "aggregations": ["SUM", "AVG", "COUNT", "MAX", "MIN"]
+        },
+        {
+          "name": "discount_amount",
+          "name_cn": "优惠金额",
+          "type": "DECIMAL(18,2)",
+          "description": "订单优惠金额，单位元"
+        },
+        {
+          "name": "pay_amount",
+          "name_cn": "实付金额",
+          "type": "DECIMAL(18,2)",
+          "description": "用户实际支付金额，单位元"
+        },
+        {
+          "name": "order_status",
+          "name_cn": "订单状态",
+          "type": "TINYINT",
+          "description": "订单状态：0-待支付, 1-已支付, 2-已发货, 3-已完成, 4-已取消"
+        },
+        {
+          "name": "pay_time",
+          "name_cn": "支付时间",
+          "type": "DATETIME",
+          "description": "用户支付时间",
+          "time_granularity": ["hour", "day", "week", "month", "year"]
+        },
+        {
+          "name": "created_at",
+          "name_cn": "创建时间",
+          "type": "DATETIME",
+          "description": "订单创建时间",
+          "time_granularity": ["hour", "day", "week", "month", "year"]
+        },
+        {
+          "name": "region_code",
+          "name_cn": "地区编码",
+          "type": "VARCHAR(10)",
+          "description": "订单所属地区编码，关联region表",
+          "foreign_key": "region.code"
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "name_cn": "用户表",
+      "description": "记录系统用户信息",
+      "fields": [
+        {
+          "name": "user_id",
+          "name_cn": "用户ID",
+          "type": "VARCHAR(32)",
+          "description": "用户唯一标识，主键",
+          "is_primary": true
+        },
+        {
+          "name": "user_name",
+          "name_cn": "用户名",
+          "type": "VARCHAR(64)",
+          "description": "用户昵称"
+        },
+        {
+          "name": "user_type",
+          "name_cn": "用户类型",
+          "type": "TINYINT",
+          "description": "用户类型：1-普通用户, 2-VIP用户, 3-企业用户"
+        },
+        {
+          "name": "register_time",
+          "name_cn": "注册时间",
+          "type": "DATETIME",
+          "description": "用户注册时间",
+          "time_granularity": ["day", "week", "month", "year"]
+        },
+        {
+          "name": "province",
+          "name_cn": "省份",
+          "type": "VARCHAR(32)",
+          "description": "用户所在省份"
+        },
+        {
+          "name": "city",
+          "name_cn": "城市",
+          "type": "VARCHAR(32)",
+          "description": "用户所在城市"
+        }
+      ]
+    },
+    {
+      "name": "region",
+      "name_cn": "地区表",
+      "description": "记录地区信息，用于地区维度分析",
+      "fields": [
+        {
+          "name": "code",
+          "name_cn": "地区编码",
+          "type": "VARCHAR(10)",
+          "description": "地区唯一编码，主键",
+          "is_primary": true
+        },
+        {
+          "name": "name",
+          "name_cn": "地区名称",
+          "type": "VARCHAR(32)",
+          "description": "地区名称"
+        },
+        {
+          "name": "province",
+          "name_cn": "省份",
+          "type": "VARCHAR(32)",
+          "description": "所属省份"
+        },
+        {
+          "name": "city",
+          "name_cn": "城市",
+          "type": "VARCHAR(32)",
+          "description": "所属城市"
+        },
+        {
+          "name": "level",
+          "name_cn": "级别",
+          "type": "TINYINT",
+          "description": "地区级别：1-省, 2-市, 3-区/县"
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "name_cn": "商品表",
+      "description": "记录商品信息",
+      "fields": [
+        {
+          "name": "product_id",
+          "name_cn": "商品ID",
+          "type": "VARCHAR(32)",
+          "description": "商品唯一标识，主键",
+          "is_primary": true
+        },
+        {
+          "name": "product_name",
+          "name_cn": "商品名称",
+          "type": "VARCHAR(128)",
+          "description": "商品名称"
+        },
+        {
+          "name": "category_id",
+          "name_cn": "品类ID",
+          "type": "VARCHAR(32)",
+          "description": "商品品类ID，关联category表",
+          "foreign_key": "category.category_id"
+        },
+        {
+          "name": "price",
+          "name_cn": "商品价格",
+          "type": "DECIMAL(18,2)",
+          "description": "商品售价，单位元"
+        },
+        {
+          "name": "status",
+          "name_cn": "商品状态",
+          "type": "TINYINT",
+          "description": "商品状态：0-下架, 1-上架"
+        }
+      ]
+    },
+    {
+      "name": "category",
+      "name_cn": "品类表",
+      "description": "记录商品品类信息",
+      "fields": [
+        {
+          "name": "category_id",
+          "name_cn": "品类ID",
+          "type": "VARCHAR(32)",
+          "description": "品类唯一标识，主键",
+          "is_primary": true
+        },
+        {
+          "name": "category_name",
+          "name_cn": "品类名称",
+          "type": "VARCHAR(64)",
+          "description": "品类名称"
+        },
+        {
+          "name": "parent_id",
+          "name_cn": "父品类ID",
+          "type": "VARCHAR(32)",
+          "description": "父品类ID，用于构建品类树"
+        },
+        {
+          "name": "level",
+          "name_cn": "级别",
+          "type": "TINYINT",
+          "description": "品类级别：1-一级品类, 2-二级品类, 3-三级品类"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "sales_order.user_id",
+      "to": "users.user_id",
+      "type": "MANY_TO_ONE",
+      "description": "订单关联用户，一个用户可以有多个订单"
+    },
+    {
+      "from": "sales_order.region_code",
+      "to": "region.code",
+      "type": "MANY_TO_ONE",
+      "description": "订单关联地区"
+    },
+    {
+      "from": "products.category_id",
+      "to": "category.category_id",
+      "type": "MANY_TO_ONE",
+      "description": "商品关联品类"
+    }
+  ],
+  "metrics": [
+    {
+      "name": "sales_amount",
+      "name_cn": "销售额",
+      "definition": "SUM(sales_order.order_amount)",
+      "description": "订单金额总和",
+      "unit": "元"
+    },
+    {
+      "name": "pay_amount",
+      "name_cn": "实付金额",
+      "definition": "SUM(sales_order.pay_amount)",
+      "description": "用户实际支付金额总和",
+      "unit": "元"
+    },
+    {
+      "name": "order_count",
+      "name_cn": "订单数",
+      "definition": "COUNT(DISTINCT sales_order.order_id)",
+      "description": "订单数量",
+      "unit": "笔"
+    },
+    {
+      "name": "user_count",
+      "name_cn": "用户数",
+      "definition": "COUNT(DISTINCT sales_order.user_id)",
+      "description": "下单用户数量",
+      "unit": "人"
+    },
+    {
+      "name": "avg_order_amount",
+      "name_cn": "平均订单金额",
+      "definition": "AVG(sales_order.order_amount)",
+      "description": "平均每个订单的金额",
+      "unit": "元"
+    },
+    {
+      "name": "discount_rate",
+      "name_cn": "折扣率",
+      "definition": "SUM(sales_order.discount_amount) / SUM(sales_order.order_amount)",
+      "description": "优惠金额占订单金额的比例",
+      "unit": "%"
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "时间",
+      "name_cn": "时间",
+      "fields": ["sales_order.created_at", "sales_order.pay_time"],
+      "granularities": ["hour", "day", "week", "month", "quarter", "year"]
+    },
+    {
+      "name": "地区",
+      "name_cn": "地区",
+      "fields": ["region.province", "region.city"],
+      "hierarchy": ["province", "city"]
+    },
+    {
+      "name": "用户类型",
+      "name_cn": "用户类型",
+      "fields": ["users.user_type"]
+    },
+    {
+      "name": "订单状态",
+      "name_cn": "订单状态",
+      "fields": ["sales_order.order_status"]
+    },
+    {
+      "name": "品类",
+      "name_cn": "品类",
+      "fields": ["category.category_name"],
+      "hierarchy": ["category.parent_id", "category.category_id"]
+    }
+  ]
+}
