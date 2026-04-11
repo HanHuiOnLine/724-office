@@ -16,9 +16,19 @@
 - [main.js](file://NL2SQL/frontend/src/main.js)
 - [router.js](file://NL2SQL/frontend/src/router/index.js)
 - [session.js](file://NL2SQL/frontend/src/stores/session.js)
+- [markdownRenderer.js](file://NL2SQL/frontend/src/utils/markdownRenderer.js)
+- [ChatView.vue](file://NL2SQL/frontend/src/views/ChatView.vue)
 - [package.json](file://NL2SQL/backend/package.json)
 - [package.json](file://NL2SQL/frontend/package.json)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增实体解析系统(resolveEntity)，支持模糊描述到具体ID的映射
+- 增强的上下文意图分析(analyzeIntent)，支持对话历史的深度融合
+- Markdown渲染系统集成，提供丰富的前端展示功能
+- 智能LLM意图更新机制(updateIntentWithLLM)，实现更自然的对话体验
+- 增强的SQL生成策略，支持上下文理解和历史信息整合
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -42,6 +52,9 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **语义检索**：利用向量数据库实现Schema的语义匹配
 - **安全控制**：多重安全验证和访问控制机制
 - **会话管理**：完整的对话历史和状态管理
+- **实体解析**：支持模糊描述到具体ID的智能映射
+- **上下文理解**：深度融合对话历史的智能分析
+- **Markdown渲染**：丰富的前端展示和交互体验
 
 ## 项目结构
 
@@ -55,6 +68,7 @@ FE2[SchemaView.vue]
 FE3[HistoryView.vue]
 FE4[Session Store]
 FE5[Router]
+FE6[Markdown Renderer]
 end
 subgraph "后端服务 (Node.js)"
 BE1[App.js]
@@ -64,6 +78,7 @@ BE4[Schema加载器]
 BE5[数据库管理]
 BE6[WebSocket处理器]
 BE7[API路由]
+BE8[实体解析系统]
 end
 subgraph "数据存储"
 DS1[SQLite数据库]
@@ -75,12 +90,14 @@ FE2 --> BE7
 FE3 --> BE7
 FE4 --> BE6
 FE5 --> FE1
+FE6 --> BE2
 BE1 --> BE2
 BE2 --> BE3
 BE2 --> BE4
 BE2 --> BE5
 BE6 --> BE2
 BE7 --> BE5
+BE8 --> BE2
 BE4 --> DS3
 BE5 --> DS1
 BE4 --> DS2
@@ -89,10 +106,12 @@ BE4 --> DS2
 **图表来源**
 - [app.js:1-266](file://NL2SQL/backend/src/app.js#L1-L266)
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
+- [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 
 **章节来源**
 - [app.js:1-266](file://NL2SQL/backend/src/app.js#L1-L266)
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
+- [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 
 ## 核心组件
 
@@ -101,7 +120,7 @@ BE4 --> DS2
 系统的核心由以下关键组件构成：
 
 #### 1. NL2SQL引擎
-负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。
+负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**实体解析系统(resolveEntity)和增强的上下文意图分析(analyzeIntent)。
 
 #### 2. LLM服务
 封装与大型语言模型的交互，提供聊天、嵌入向量获取和重试机制。
@@ -118,8 +137,11 @@ BE4 --> DS2
 #### 6. WebSocket处理器
 实现实时通信，支持流式响应和心跳检测。
 
+#### 7. 实体解析系统
+**新增**支持模糊描述到具体ID的智能映射，如将"青木"映射到游戏ID。
+
 **章节来源**
-- [nl2sqlEngine.js:1-829](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L829)
+- [nl2sqlEngine.js:1-1066](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1066)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
 - [schemaLoader.js:1-655](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L655)
 - [vectorStore.js:1-442](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L442)
@@ -138,15 +160,20 @@ BE4 --> DS2
 使用Pinia替代Vuex，提供更好的TypeScript支持和开发体验。
 
 #### 4. 组件架构
-- ChatView：主要的聊天界面
+- ChatView：主要的聊天界面，**集成了Markdown渲染系统**
 - SchemaView：数据Schema展示
 - HistoryView：查询历史记录
 - SchemaViewer：Schema可视化组件
 
+#### 5. Markdown渲染系统
+**新增**集成markdown-it、Shiki、Mermaid.js、KaTeX，提供丰富的前端展示功能。
+
 **章节来源**
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
 - [router.js:1-137](file://NL2SQL/frontend/src/router/index.js#L1-L137)
-- [session.js:1-354](file://NL2SQL/frontend/src/stores/session.js#L1-L354)
+- [session.js:1-383](file://NL2SQL/frontend/src/stores/session.js#L1-L383)
+- [ChatView.vue:1-692](file://NL2SQL/frontend/src/views/ChatView.vue#L1-L692)
+- [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 
 ## 架构概览
 
@@ -157,16 +184,19 @@ graph TB
 subgraph "表现层"
 UI[Vue.js前端]
 WS[WebSocket客户端]
+MR[Markdown渲染器]
 end
 subgraph "应用层"
 API[RESTful API]
 WS_SERVER[WebSocket服务器]
 ENGINE[NL2SQL引擎]
+ENDPOINT[实体解析端点]
 end
 subgraph "服务层"
 LLM[LLM服务]
 SCHEMA[Schema服务]
 VECTOR[向量服务]
+ENTITIES[实体服务]
 end
 subgraph "数据层"
 SQLITE[SQLite数据库]
@@ -174,20 +204,24 @@ LANCEDB[LanceDB向量库]
 METADATA[Schema元数据]
 end
 UI --> API
+UI --> MR
 WS --> WS_SERVER
 WS_SERVER --> ENGINE
 API --> ENGINE
 ENGINE --> LLM
 ENGINE --> SCHEMA
 ENGINE --> VECTOR
+ENGINE --> ENTITIES
 SCHEMA --> METADATA
 ENGINE --> SQLITE
 ENGINE --> LANCEDB
+ENTITIES --> SQLITE
 ```
 
 **图表来源**
 - [app.js:88-111](file://NL2SQL/backend/src/app.js#L88-L111)
 - [routes.js:1-538](file://NL2SQL/backend/src/core/routes.js#L1-L538)
+- [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 
 ### 数据流架构
 
@@ -196,14 +230,17 @@ sequenceDiagram
 participant Client as 客户端
 participant WS as WebSocket服务器
 participant Engine as NL2SQL引擎
+participant Entity as 实体解析系统
 participant LLM as LLM服务
 participant Schema as Schema加载器
 participant DB as 数据库
 Client->>WS : 发送查询请求
 WS->>Engine : 处理查询
-Engine->>Engine : 意图识别
+Engine->>Engine : 意图识别(融合上下文)
 Engine->>LLM : 分析用户意图
 LLM-->>Engine : 意图分析结果
+Engine->>Entity : 解析实体ID
+Entity-->>Engine : 实体映射结果
 Engine->>Schema : 搜索相关表
 Schema-->>Engine : 表结构信息
 Engine->>LLM : 生成SQL
@@ -227,35 +264,67 @@ WS-->>Client : 发送响应
 
 NL2SQL引擎是系统的核心，实现了完整的自然语言到SQL转换流程：
 
-#### 意图识别机制
+#### 实体解析系统
+
+**新增**实体解析系统(resolveEntity)支持模糊描述到具体ID的智能映射：
 
 ```mermaid
 flowchart TD
-Start([开始处理查询]) --> LoadSchema[加载Schema元数据]
-LoadSchema --> BuildPrompt[构建系统提示词]
-BuildPrompt --> CallLLM[调用LLM进行意图分析]
-CallLLM --> ParseResponse[解析JSON响应]
-ParseResponse --> ExtractInfo[提取关键信息<br/>- 时间范围<br/>- 维度<br/>- 指标<br/>- 筛选条件]
-ExtractInfo --> PostProcess[后处理和补全]
-PostProcess --> CheckComplete{意图完整?}
-CheckComplete --> |是| GenerateSQL[生成SQL]
-CheckComplete --> |否| GenerateClarify[生成澄清问题]
-GenerateClarify --> SaveMessage[保存澄清消息]
-GenerateClarify --> ReturnClarify[返回澄清请求]
-GenerateSQL --> ValidateSQL[SQL验证]
-ValidateSQL --> |通过| ExecuteQuery[执行查询]
-ValidateSQL --> |失败| ReturnError[返回错误]
-ExecuteQuery --> FormatResult[格式化结果]
-FormatResult --> SaveResult[保存结果]
-SaveResult --> ReturnSuccess[返回成功]
-ReturnClarify --> End([结束])
-ReturnSuccess --> End
-ReturnError --> End
+Start([开始实体解析]) --> CheckDB{数据库连接可用?}
+CheckDB --> |否| MockData[使用模拟数据]
+CheckDB --> |是| QueryDB[查询数据库]
+MockData --> CheckType{实体类型匹配?}
+QueryDB --> CheckResults{查询结果存在?}
+CheckType --> |是| ReturnEntity[返回实体信息]
+CheckType --> |否| ReturnNotFound[返回未找到]
+CheckResults --> |是| CheckExact{精确匹配?}
+CheckResults --> |否| ReturnNotFound
+CheckExact --> |是| ReturnExact[返回精确匹配]
+CheckExact --> |否| ReturnSimilar[返回相似实体]
+ReturnEntity --> End([结束])
+ReturnNotFound --> End
+ReturnExact --> End
+ReturnSimilar --> End
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:39-166](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L39-L166)
-- [nl2sqlEngine.js:302-410](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L302-L410)
+- [nl2sqlEngine.js:38-104](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L38-L104)
+
+#### 增强的上下文意图分析
+
+**更新**增强的analyzeIntent函数支持深度对话历史理解：
+
+1. **上下文融合**：将最近5轮对话历史融入意图分析
+2. **智能修正**：支持用户对之前查询的修改和替换
+3. **上下文查询检测**：识别依赖上下文才能理解的查询
+4. **置信度评估**：动态调整意图识别的置信度
+
+**章节来源**
+- [nl2sqlEngine.js:118-279](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L118-L279)
+- [nl2sqlEngine.js:856-891](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L856-L891)
+
+#### 智能LLM意图更新
+
+**新增**updateIntentWithLLM函数实现更自然的对话体验：
+
+```mermaid
+stateDiagram-v2
+[*] --> 检查上下文查询
+检查上下文查询 --> 是上下文查询? : intent.isContextualQuery
+是上下文查询? --> |是| 使用LLM更新
+是上下文查询? --> |否| 手动合并
+使用LLM更新 --> 生成更新提示词
+生成更新提示词 --> 调用LLM
+调用LLM --> 解析响应
+解析响应 --> 返回更新意图
+手动合并 --> 合并意图
+合并意图 --> 返回合并结果
+返回更新意图 --> [*]
+返回合并结果 --> [*]
+```
+
+**图表来源**
+- [nl2sqlEngine.js:342-406](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L342-L406)
 
 #### SQL生成策略
 
@@ -265,10 +334,11 @@ ReturnError --> End
 2. **语义匹配**：使用向量搜索找到相关表
 3. **安全验证**：多重安全检查防止恶意查询
 4. **结果优化**：自动添加LIMIT限制和CTE结构
+5. **上下文整合**：融合历史对话中的澄清信息
 
 **章节来源**
-- [nl2sqlEngine.js:302-410](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L302-L410)
-- [nl2sqlEngine.js:419-456](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L419-L456)
+- [nl2sqlEngine.js:490-639](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L490-L639)
+- [nl2sqlEngine.js:516-527](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L516-L527)
 
 ### LLM服务架构
 
@@ -503,7 +573,7 @@ stateDiagram-v2
 连接建立 --> 心跳检测 : 连接成功
 心跳检测 --> 心跳检测 : 收到ping
 心跳检测 --> 连接建立 : 收到pong
-心跳检测 --> 连接超时 : 超时检测
+heartbeat --> 连接超时 : 超时检测
 连接超时 --> [*] : 关闭连接
 心跳检测 --> 处理查询 : 收到query消息
 处理查询 --> 心跳检测 : 查询完成
@@ -530,6 +600,52 @@ WebSocket支持多种消息类型：
 - [wsHandler.js:139-175](file://NL2SQL/backend/src/core/wsHandler.js#L139-L175)
 - [wsHandler.js:339-362](file://NL2SQL/backend/src/core/wsHandler.js#L339-L362)
 
+### Markdown渲染系统
+
+**新增**前端Markdown渲染系统，提供丰富的展示功能：
+
+#### 渲染架构
+
+```mermaid
+graph TB
+subgraph "Markdown渲染系统"
+MD[markdown-it]
+SH[Shiki代码高亮]
+ME[Mermaid图表]
+KA[KaTeX数学公式]
+END[渲染器]
+end
+subgraph "前端组件"
+CV[ChatView.vue]
+MR[MarkdownRenderer]
+end
+MD --> SH
+MD --> ME
+MD --> KA
+MR --> MD
+MR --> SH
+MR --> ME
+MR --> KA
+CV --> MR
+```
+
+**图表来源**
+- [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
+- [ChatView.vue:223-238](file://NL2SQL/frontend/src/views/ChatView.vue#L223-L238)
+
+#### 功能特性
+
+1. **Markdown解析**：使用markdown-it进行标准Markdown解析
+2. **代码高亮**：集成Shiki支持多种编程语言
+3. **图表渲染**：支持Mermaid流程图、序列图等
+4. **数学公式**：使用KaTeX渲染LaTeX公式
+5. **实时渲染**：异步渲染机制避免阻塞UI
+
+**章节来源**
+- [markdownRenderer.js:74-100](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L74-L100)
+- [markdownRenderer.js:156-170](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L156-L170)
+- [ChatView.vue:35-51](file://NL2SQL/frontend/src/views/ChatView.vue#L35-L51)
+
 ## 依赖关系分析
 
 系统具有清晰的依赖层次结构：
@@ -542,6 +658,10 @@ EX2[WebSocket]
 EX3[SQLite3]
 EX4[LanceDB]
 EX5[LLM API]
+EX6[markdown-it]
+EX7[Shiki]
+EX8[Mermaid.js]
+EX9[KaTeX]
 end
 subgraph "内部模块"
 IM1[配置管理]
@@ -553,12 +673,18 @@ IM6[LLM服务]
 IM7[NL2SQL引擎]
 IM8[WebSocket处理]
 IM9[API路由]
+IM10[实体解析]
+IM11[Markdown渲染]
 end
 EX1 --> IM9
 EX2 --> IM8
 EX3 --> IM3
 EX4 --> IM4
 EX5 --> IM6
+EX6 --> IM11
+EX7 --> IM11
+EX8 --> IM11
+EX9 --> IM11
 IM1 --> IM2
 IM1 --> IM3
 IM1 --> IM4
@@ -567,12 +693,16 @@ IM1 --> IM6
 IM1 --> IM7
 IM1 --> IM8
 IM1 --> IM9
+IM1 --> IM10
+IM1 --> IM11
 IM9 --> IM7
 IM8 --> IM7
 IM7 --> IM5
 IM7 --> IM6
+IM7 --> IM10
 IM5 --> IM4
 IM5 --> IM3
+IM11 --> IM7
 ```
 
 **图表来源**
@@ -587,6 +717,7 @@ IM5 --> IM3
 2. **日志统一**：所有模块使用统一的日志系统
 3. **数据层抽象**：数据库和向量存储提供统一接口
 4. **服务层封装**：LLM服务和Schema服务提供标准化接口
+5. **渲染层集成**：前端组件依赖Markdown渲染系统
 
 **章节来源**
 - [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
@@ -602,6 +733,7 @@ IM5 --> IM3
 2. **向量缓存**：向量数据持久化存储
 3. **会话缓存**：近期会话消息缓存
 4. **LLM缓存**：常用查询结果缓存
+5. **实体缓存**：实体映射结果缓存
 
 ### 并发处理
 
@@ -609,6 +741,7 @@ IM5 --> IM3
 2. **队列处理**：WebSocket消息队列
 3. **异步处理**：非阻塞I/O操作
 4. **超时控制**：防止资源泄漏
+5. **渲染优化**：异步Markdown渲染避免UI阻塞
 
 ### 内存管理
 
@@ -616,6 +749,7 @@ IM5 --> IM3
 2. **垃圾回收**：及时释放内存资源
 3. **连接复用**：减少连接创建开销
 4. **批量操作**：数据库批量处理
+5. **渲染节流**：避免频繁的DOM更新
 
 ## 故障排除指南
 
@@ -685,6 +819,38 @@ IM5 --> IM3
 - 增加连接数限制
 - 清理消息队列
 
+#### 5. 实体解析问题
+
+**症状**：模糊描述无法映射到具体ID
+
+**排查步骤**：
+1. 检查数据库连接
+2. 验证实体类型配置
+3. 查看日志错误信息
+4. 检查模拟数据配置
+
+**解决方法**：
+- 修复数据库连接
+- 更新实体映射配置
+- 检查实体表结构
+- 增加实体映射规则
+
+#### 6. Markdown渲染问题
+
+**症状**：Markdown内容显示异常
+
+**排查步骤**：
+1. 检查Shiki初始化
+2. 验证Mermaid配置
+3. 查看KaTeX版本
+4. 检查CSS样式
+
+**解决方法**：
+- 重新初始化Shiki
+- 检查Mermaid配置
+- 更新KaTeX版本
+- 修复CSS样式冲突
+
 ### 日志分析
 
 系统提供了详细的日志记录功能：
@@ -722,6 +888,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 2. **技术栈**：使用成熟稳定的技术栈
 3. **扩展性**：良好的模块化设计便于功能扩展
 4. **性能**：多层缓存和优化机制保证性能
+5. **智能化**：新增实体解析和上下文理解能力
+6. **用户体验**：集成Markdown渲染提供丰富展示
 
 ### 功能特色
 
@@ -729,6 +897,9 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 2. **语义检索**：向量数据库实现智能匹配
 3. **实时交互**：WebSocket实现实时通信
 4. **安全控制**：多重安全验证机制
+5. **实体映射**：模糊描述到具体ID的智能解析
+6. **上下文理解**：深度融合对话历史的智能分析
+7. **富文本展示**：Markdown渲染提供美观界面
 
 ### 应用价值
 
@@ -741,5 +912,7 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 增强机器学习能力
 - 优化移动端体验
 - 扩展多语言支持
+- 集成更多图表类型
+- 增强实体解析准确性
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

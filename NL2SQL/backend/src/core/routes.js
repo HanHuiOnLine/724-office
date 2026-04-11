@@ -312,6 +312,37 @@ router.get('/sessions/:sessionId', async (req, res) => {
 });
 
 /**
+ * DELETE /api/sessions/:sessionId
+ * 删除会话
+ */
+router.delete('/sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    // 检查会话是否存在
+    const session = await database.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        error: '会话不存在'
+      });
+    }
+    
+    // 删除会话
+    await database.deleteSession(sessionId);
+    
+    res.json({
+      success: true,
+      message: '会话已删除'
+    });
+  } catch (error) {
+    logger.error('删除会话失败:', error);
+    res.status(500).json({
+      error: '删除会话失败: ' + error.message
+    });
+  }
+});
+
+/**
  * GET /api/sessions/:sessionId/messages
  * 获取会话消息历史
  * 

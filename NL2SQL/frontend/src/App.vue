@@ -39,6 +39,13 @@
         >
           <el-icon><ChatDotRound /></el-icon>
           <span class="session-name">{{ session.title || '新会话' }}</span>
+          <el-icon 
+            class="delete-icon" 
+            @click.stop="handleDeleteSession(session.id)"
+            title="删除会话"
+          >
+            <Delete />
+          </el-icon>
         </div>
       </div>
       
@@ -92,10 +99,11 @@ import {
   Setting, 
   Fold, 
   Expand,
-  DataLine 
+  DataLine,
+  Delete
 } from '@element-plus/icons-vue'
-// 导入Element Plus消息组件
-import { ElMessage } from 'element-plus'
+// 导入Element Plus消息组件和确认框
+import { ElMessage, ElMessageBox } from 'element-plus'
 // 导入会话状态管理
 import { useSessionStore } from './stores/session'
 // 导入Schema查看组件
@@ -167,6 +175,34 @@ async function switchSession(sessionId) {
   await sessionStore.setCurrentSession(sessionId)
   // 跳转到对应会话的聊天页面
   router.push(`/chat/${sessionId}`)
+}
+
+/**
+ * 删除会话
+ * @param {string} sessionId - 会话ID
+ */
+async function handleDeleteSession(sessionId) {
+  try {
+    await ElMessageBox.confirm('确定要删除这个会话吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    
+    await sessionStore.deleteSession(sessionId)
+    ElMessage.success('会话已删除')
+    
+    // 如果删除的是当前会话，跳转到首页
+    if (currentSessionId.value === sessionId) {
+      router.push('/')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除会话失败，详细错误:', error)
+      const errorMsg = error?.error || error?.message || '删除会话失败'
+      ElMessage.error(errorMsg)
+    }
+  }
 }
 
 // ============================================
@@ -281,12 +317,31 @@ onMounted(() => {
   color: #409eff;
 }
 
+.session-item:hover .delete-icon {
+  opacity: 1;
+}
+
 .session-name {
   margin-left: 8px;
   font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.delete-icon {
+  opacity: 0;
+  margin-left: 8px;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.delete-icon:hover {
+  background-color: #f56c6c;
+  color: white;
 }
 
 /* 侧边栏底部工具栏 */

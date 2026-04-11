@@ -353,6 +353,35 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
   
+  /**
+   * 删除会话
+   * @param {string} sessionId - 会话ID
+   */
+  async function deleteSession(sessionId) {
+    try {
+      // 调用API删除会话
+      await api.deleteSession(sessionId)
+      
+      // 从本地列表中移除
+      const index = sessions.value.findIndex(s => s.id === sessionId)
+      if (index > -1) {
+        sessions.value.splice(index, 1)
+      }
+      
+      // 如果删除的是当前会话，清空当前会话
+      if (currentSessionId.value === sessionId) {
+        currentSessionId.value = null
+        messages.value = []
+        disconnectWebSocket()
+      }
+      
+      return true
+    } catch (error) {
+      console.error('删除会话失败:', error)
+      throw error
+    }
+  }
+  
   // ==========================================
   // 导出
   // ==========================================
@@ -377,6 +406,7 @@ export const useSessionStore = defineStore('session', () => {
     addMessage,
     connectWebSocket,
     sendQuery,
-    disconnectWebSocket
+    disconnectWebSocket,
+    deleteSession
   }
 })

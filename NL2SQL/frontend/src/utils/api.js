@@ -185,6 +185,15 @@ export function getSessionMessages(sessionId, limit = 50) {
   })
 }
 
+/**
+ * 删除会话
+ * @param {string} sessionId - 会话ID
+ * @returns {Promise<Object>} 删除结果
+ */
+export function deleteSession(sessionId) {
+  return apiClient.delete(`/sessions/${sessionId}`)
+}
+
 // ============================================
 // 查询历史 API
 // ============================================

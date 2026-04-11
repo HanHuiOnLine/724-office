@@ -3,6 +3,11 @@
 <cite>
 **本文档引用的文件**
 - [package.json](file://NL2SQL/backend/package.json)
+- [package.json](file://NL2SQL/frontend/package.json)
+- [vite.config.js](file://NL2SQL/frontend/vite.config.js)
+- [markdownRenderer.js](file://NL2SQL/frontend/src/utils/markdownRenderer.js)
+- [ChatView.vue](file://NL2SQL/frontend/src/views/ChatView.vue)
+- [SchemaViewer.vue](file://NL2SQL/frontend/src/components/SchemaViewer.vue)
 - [app.js](file://NL2SQL/backend/src/app.js)
 - [config.js](file://NL2SQL/backend/src/core/config.js)
 - [routes.js](file://NL2SQL/backend/src/core/routes.js)
@@ -18,6 +23,13 @@
 - [main.js](file://NL2SQL/frontend/src/main.js)
 - [.env.example](file://config.example.json)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增前端依赖包说明（markdown-it、mermaid、katex等）
+- 更新前端构建配置说明
+- 新增Markdown渲染和数学公式支持说明
+- 更新前端组件使用的技术栈说明
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -42,6 +54,7 @@ NL2SQL是一个基于人工智能技术的自然语言到SQL查询转换系统�
 - **语义检索**：基于向量数据库实现Schema语义匹配
 - **会话管理**：完整的对话历史记录和管理
 - **安全控制**：多层安全防护和访问控制
+- **富文本渲染**：支持Markdown、Mermaid图表和数学公式渲染
 
 ## 系统架构
 
@@ -50,6 +63,9 @@ graph TB
 subgraph "前端层"
 FE[Vue.js前端应用]
 WS[WebSocket连接]
+MR[Markdown渲染器]
+MS[Math公式渲染]
+MG[Mermaid图表渲染]
 end
 subgraph "后端服务层"
 API[Express API服务]
@@ -67,6 +83,9 @@ LLM[LLM API服务]
 EMBED[Embedding服务]
 end
 FE --> WS
+FE --> MR
+FE --> MS
+FE --> MG
 WS --> WS_S
 API --> ROUTES
 ROUTES --> ENGINE
@@ -96,9 +115,11 @@ WS_S --> ENGINE
 - **向量数据库**：LanceDB（自动安装）
 - **Web服务器**：Node.js内置HTTP服务器
 - **WebSocket**：ws库
+- **前端构建工具**：Vite（自动安装）
 
 **章节来源**
 - [package.json:25-27](file://NL2SQL/backend/package.json#L25-L27)
+- [package.json:11-29](file://NL2SQL/frontend/package.json#L11-L29)
 
 ## 后端服务部署
 
@@ -109,7 +130,12 @@ WS_S --> ENGINE
 git clone <repository-url>
 cd NL2SQL
 
-# 安装依赖
+# 安装后端依赖
+cd NL2SQL/backend
+npm install
+
+# 安装前端依赖
+cd ../frontend
 npm install
 ```
 
@@ -154,10 +180,18 @@ SCHEMA_REVECTORIZE=false
 ### 3. 启动服务
 
 ```bash
-# 开发模式
+# 开发模式（前后端分离）
+# 后端
+cd NL2SQL/backend
+npm run dev
+
+# 另一个终端
+# 前端
+cd NL2SQL/frontend
 npm run dev
 
 # 生产模式
+cd NL2SQL/backend
 npm run start
 ```
 
@@ -203,6 +237,17 @@ export default {
         rewrite: (path) => path.replace(/^\/api/, '/api')
       }
     }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'element-plus': ['element-plus'],
+          'echarts': ['echarts', 'vue-echarts'],
+          'vendor': ['vue', 'vue-router', 'pinia', 'axios']
+        }
+      }
+    }
   }
 }
 ```
@@ -238,7 +283,22 @@ server {
 ```
 
 **章节来源**
+- [vite.config.js:17-99](file://NL2SQL/frontend/vite.config.js#L17-L99)
 - [main.js:55-89](file://NL2SQL/frontend/src/main.js#L55-L89)
+
+### 5. 前端依赖包说明
+
+前端项目使用以下核心依赖包：
+
+- **markdown-it**：Markdown解析器，用于将Markdown文本转换为HTML
+- **mermaid**：图表和流程图渲染库，支持多种图表类型
+- **katex**：数学公式渲染库，支持LaTeX语法
+- **shiki**：代码高亮库，支持多种编程语言
+- **Element Plus**：Vue 3组件库
+- **Vue ECharts**：ECharts图表组件
+
+**章节来源**
+- [package.json:15-28](file://NL2SQL/frontend/package.json#L15-L28)
 
 ## 配置管理
 
@@ -327,6 +387,33 @@ Schema配置文件：`NL2SQL/backend/config/schema-metadata.json`
 
 **章节来源**
 - [schema-metadata.json:1-800](file://NL2SQL/backend/config/schema-metadata.json#L1-L800)
+
+### 3. Markdown渲染配置
+
+前端Markdown渲染器配置：
+
+```javascript
+// 初始化Mermaid图表
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'default',
+  securityLevel: 'strict',
+  flowchart: {
+    useMaxWidth: true,
+    htmlLabels: true,
+    curve: 'basis'
+  }
+})
+
+// Shiki代码高亮配置
+const shikiHighlighter = await createHighlighter({
+  themes: ['one-dark-pro'],
+  langs: ['sql', 'javascript', 'python', 'java', 'json', 'yaml', 'markdown', 'html', 'css', 'bash', 'powershell']
+})
+```
+
+**章节来源**
+- [markdownRenderer.js:24-68](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L24-L68)
 
 ## 数据迁移与初始化
 
@@ -436,7 +523,7 @@ sessionCleanupJob = cron.schedule(
     {
         name: 'session-cleanup'
     }
-);
+)
 ```
 
 **章节来源**
@@ -501,7 +588,7 @@ const stats = {
         memory: process.memoryUsage(),
         node_version: process.version
     }
-};
+}
 ```
 
 **章节来源**
@@ -561,6 +648,17 @@ try {
 } catch (error) {
     console.error('向量数据库连接失败:', error.message);
 }
+```
+
+#### 前端依赖问题
+```bash
+# 检查前端依赖安装
+cd NL2SQL/frontend
+npm list markdown-it mermaid katex shiki
+
+# 清理缓存重新安装
+rm -rf node_modules package-lock.json
+npm install
 ```
 
 ### 2. 性能优化
@@ -697,7 +795,7 @@ router.get('/api/health', (req, res) => {
     };
     
     res.json(health);
-});
+})
 ```
 
 #### 错误监控
@@ -710,7 +808,7 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
     logger.error('未捕获的异常:', error);
     gracefulShutdown();
-});
+})
 ```
 
 ### 4. 备份恢复
@@ -740,7 +838,41 @@ tar -xzf vectordb_backup.tar.gz -C data/
 node scripts/rebuild-vectors.js
 ```
 
+### 5. 前端技术栈优化
+
+#### 代码分割和懒加载
+```javascript
+// Vite配置中的手动分块
+manualChunks: {
+    'element-plus': ['element-plus'],
+    'echarts': ['echarts', 'vue-echarts'],
+    'vendor': ['vue', 'vue-router', 'pinia', 'axios']
+}
+```
+
+#### Markdown渲染优化
+```javascript
+// 异步加载Shiki高亮器
+async function initShiki() {
+    if (shikiHighlighter) return shikiHighlighter
+  
+    try {
+        const { createHighlighter } = await import('shiki')
+        shikiHighlighter = await createHighlighter({
+            themes: ['one-dark-pro'],
+            langs: ['sql', 'javascript', 'python', 'java', 'json', 'yaml', 'markdown', 'html', 'css', 'bash', 'powershell']
+        })
+        return shikiHighlighter
+    } catch (error) {
+        console.warn('Shiki 初始化失败，将使用备用高亮:', error)
+        return null
+    }
+}
+```
+
 **章节来源**
 - [config.js:140-170](file://NL2SQL/backend/src/core/config.js#L140-L170)
 - [database.js:200-252](file://NL2SQL/backend/src/core/database.js#L200-L252)
 - [selfRepair.js:145-286](file://NL2SQL/backend/src/core/selfRepair.js#L145-L286)
+- [vite.config.js:84-97](file://NL2SQL/frontend/vite.config.js#L84-L97)
+- [markdownRenderer.js:51-68](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L51-L68)

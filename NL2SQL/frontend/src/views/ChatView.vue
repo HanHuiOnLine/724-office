@@ -16,7 +16,7 @@
       <!-- 消息列表 -->
       <div 
         v-for="(message, index) in messages" 
-        :key="index"
+        :key="message.id || index"
         class="message-wrapper"
         :class="message.role"
       >
@@ -160,8 +160,8 @@ const messagesContainer = ref(null)
 
 // 获取会话状态管理store
 const sessionStore = useSessionStore()
-// 从store获取消息列表
-const messages = sessionStore.messages
+// 从store获取消息列表 - 使用computed保持响应式
+const messages = computed(() => sessionStore.messages)
 // 从store获取处理状态 - 使用computed保持响应式
 const isProcessing = computed(() => sessionStore.isProcessing)
 // 从store获取处理状态文本
@@ -325,7 +325,7 @@ watch(() => route.params.sessionId, (newSessionId, oldSessionId) => {
 /**
  * 监听消息变化，自动滚动到底部
  */
-watch(messages, () => {
+watch(() => sessionStore.messages, () => {
   scrollToBottom()
 }, { deep: true })
 

@@ -416,6 +416,32 @@ async function touchSession(sessionId) {
   await run(sql, [sessionId]);
 }
 
+/**
+ * 删除会话
+ * @param {string} sessionId - 会话ID
+ * @returns {Promise<boolean>} 是否删除成功
+ */
+async function deleteSession(sessionId) {
+  try {
+    // 开启事务
+    await transaction(async () => {
+      // 先删除会话相关的所有消息
+      const deleteMessagesSql = 'DELETE FROM messages WHERE session_id = ?';
+      await run(deleteMessagesSql, [sessionId]);
+      
+      // 再删除会话
+      const deleteSessionSql = 'DELETE FROM sessions WHERE id = ?';
+      await run(deleteSessionSql, [sessionId]);
+    });
+    
+    logger.info(`会话已删除: ${sessionId}`);
+    return true;
+  } catch (error) {
+    logger.error(`删除会话失败: ${sessionId}`, error);
+    throw error;
+  }
+}
+
 // ============================================
 // 消息相关操作
 // ============================================
@@ -522,6 +548,7 @@ module.exports = {
   getSession,
   getUserSessions,
   touchSession,
+  deleteSession,
   // 消息操作
   addMessage,
   getSessionMessages,

@@ -18,22 +18,32 @@
 - [session.js](file://NL2SQL/frontend/src/stores/session.js)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 新增实体解析功能，支持将模糊描述映射到具体ID
+- 增强上下文分析能力，支持对话历史理解和意图融合
+- 完善LLM集成，支持更复杂的自然语言处理
+- 优化WebSocket通信，支持流式响应和进度反馈
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
 3. [核心组件](#核心组件)
 4. [架构概览](#架构概览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能考虑](#性能考虑)
-8. [故障排除指南](#故障排除指南)
-9. [结论](#结论)
+6. [实体解析与上下文分析](#实体解析与上下文分析)
+7. [依赖关系分析](#依赖关系分析)
+8. [性能考虑](#性能考虑)
+9. [故障排除指南](#故障排除指南)
+10. [结论](#结论)
 
 ## 简介
 
 NL2SQL API是一个基于自然语言到SQL转换技术的数据查询服务。该项目提供了完整的后端服务和前端界面，能够将用户的自然语言查询转换为标准SQL语句，并执行查询返回结果。
 
 该系统采用现代化的技术栈，包括Node.js后端、Vue.js前端、SQLite数据库、LanceDB向量数据库，以及集成的LLM（大语言模型）服务。系统支持实时通信、会话管理、查询历史记录、Schema元数据管理等功能。
+
+**更新** 新增了实体解析和上下文分析功能，增强了系统的智能化水平，能够更好地理解用户意图和处理复杂的查询场景。
 
 ## 项目结构
 
@@ -95,6 +105,7 @@ G --> A
 ### 3. NL2SQL引擎 (nl2sqlEngine.js)
 核心转换引擎，实现：
 - 意图识别和澄清机制
+- 实体解析和上下文理解
 - SQL生成和验证
 - 查询执行和结果格式化
 - 流式处理和进度反馈
@@ -113,6 +124,8 @@ LLM API通信模块：
 - 语义搜索和匹配
 - SQL验证功能
 
+**更新** 新增实体解析功能，支持将模糊描述（如"青木"）映射到具体ID（如"30"），并增强上下文分析能力，支持对话历史的理解和融合。
+
 **章节来源**
 - [app.js:121-190](file://NL2SQL/backend/src/app.js#L121-L190)
 - [routes.js:1-538](file://NL2SQL/backend/src/core/routes.js#L1-L538)
@@ -130,12 +143,18 @@ participant Client as 客户端应用
 participant API as REST API
 participant WS as WebSocket
 participant Engine as NL2SQL引擎
+participant Entity as 实体解析
+participant Context as 上下文分析
 participant LLM as LLM服务
 participant Schema as Schema管理
 participant DB as 数据库
 Client->>API : HTTP请求
 API->>WS : WebSocket连接
 WS->>Engine : 处理查询
+Engine->>Entity : 实体解析
+Entity-->>Engine : 解析结果
+Engine->>Context : 上下文分析
+Context-->>Engine : 上下文理解
 Engine->>Schema : 加载Schema
 Engine->>LLM : 意图识别
 LLM-->>Engine : 意图分析结果
@@ -164,12 +183,19 @@ WS-->>Client : 实时响应
 ```mermaid
 classDiagram
 class NL2SQLEngine {
-+analyzeIntent(userQuery) Intent
++resolveEntity(entityName, entityType) EntityResult
++analyzeIntent(userQuery, history) Intent
++mergeIntent(historicalIntent, currentIntent, supplementQuery) Intent
++updateIntentWithLLM(previousIntent, newQuery, history) Intent
 +generateSQL(intent, history) SQLResult
 +validateSQL(sql) ValidationResult
 +executeQuery(sql) QueryResult
 +formatResult(result, originalQuery) string
 +processQuery(userQuery, sessionId, onProgress) ProcessResult
+}
+class EntityResolver {
++resolveEntity(entityName, entityType) EntityResult
++searchEntities(query, type, limit) Entity[]
 }
 class IntentAnalyzer {
 +extractTimeRange(query) TimeRange
@@ -188,6 +214,7 @@ class LLMService {
 +chat(messages, tools, stream) Response
 +getEmbedding(input) number[]
 }
+NL2SQLEngine --> EntityResolver : 使用
 NL2SQLEngine --> IntentAnalyzer : 使用
 NL2SQLEngine --> SQLGenerator : 使用
 NL2SQLEngine --> LLMService : 依赖
@@ -214,6 +241,8 @@ Handler->>Client : connected消息
 Client->>WS : query消息
 WS->>Handler : handleMessage()
 Handler->>Engine : processQuery()
+Engine->>Engine : 实体解析
+Engine->>Engine : 上下文分析
 Engine->>Engine : 分析意图
 Engine->>Engine : 生成SQL
 Engine->>DB : 执行查询
@@ -284,6 +313,93 @@ SESSIONS ||--o{ QUERY_HISTORY : "产生"
 - [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
 - [database.js:1-531](file://NL2SQL/backend/src/core/database.js#L1-L531)
 
+## 实体解析与上下文分析
+
+### 实体解析功能
+
+NL2SQL系统实现了智能的实体解析功能，能够将用户的模糊描述映射到具体的数据库实体：
+
+```mermaid
+flowchart TD
+A[用户输入: "青木的游戏"] --> B[resolveEntity函数]
+B --> C{数据库连接可用?}
+C --> |是| D[查询数据库表]
+C --> |否| E[使用模拟数据]
+D --> F{找到匹配?}
+F --> |是| G[返回实体ID和置信度]
+F --> |否| H[返回失败]
+E --> I{找到匹配?}
+I --> |是| G
+I --> |否| H
+G --> J[精确匹配: 置信度1.0]
+G --> K[相似匹配: 置信度0.7 + 替代方案]
+```
+
+**图表来源**
+- [nl2sqlEngine.js:31-104](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L31-L104)
+
+实体解析支持的实体类型：
+- **game**: 游戏实体，如"王者荣耀"、"和平精英"
+- **channel**: 渠道实体，如"微信渠道"、"QQ渠道"
+
+### 上下文分析功能
+
+系统具备强大的上下文理解能力，能够结合对话历史分析用户的真实意图：
+
+```mermaid
+flowchart TD
+A[用户查询: "青木上个月流水"] --> B[analyzeIntent函数]
+B --> C[获取Schema摘要]
+B --> D[构建对话上下文]
+D --> E{历史对话存在?}
+E --> |是| F[提取最近5轮对话]
+E --> |否| G[空上下文]
+F --> H[构建上下文摘要]
+H --> I[构造系统提示词]
+I --> J[调用LLM进行意图分析]
+J --> K[解析JSON响应]
+K --> L[后处理: 指标识别]
+L --> M[返回完整意图分析]
+```
+
+**图表来源**
+- [nl2sqlEngine.js:118-279](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L118-L279)
+
+上下文分析支持的场景：
+- **补充信息**: 用户提供ID、修改时间范围等补充信息
+- **需求变更**: 用户更换指标或查询类型
+- **连续查询**: 基于上下文理解的延续性查询
+
+### 意图融合机制
+
+系统实现了智能的意图融合机制，能够将历史意图和当前意图进行有效合并：
+
+```mermaid
+flowchart TD
+A[历史意图: "查询游戏数据"] --> B[当前意图: "提供游戏ID"]
+B --> C[mergeIntent函数]
+C --> D{历史意图有metrics?}
+D --> |是| E[保留历史metrics]
+D --> |否| F[使用当前意图metrics]
+E --> G[合并filters]
+F --> G
+G --> H{当前意图有time_range?}
+H --> |是| I[补充time_range]
+H --> |否| J[保持原状]
+I --> K[添加补充信息]
+J --> K
+K --> L[提升置信度]
+L --> M[返回合并后意图]
+```
+
+**图表来源**
+- [nl2sqlEngine.js:290-331](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L290-L331)
+
+**章节来源**
+- [nl2sqlEngine.js:31-104](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L31-L104)
+- [nl2sqlEngine.js:118-279](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L118-L279)
+- [nl2sqlEngine.js:290-331](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L290-L331)
+
 ## 依赖关系分析
 
 ### 核心依赖关系
@@ -306,6 +422,8 @@ J[schemaLoader.js]
 K[database.js]
 L[vectorStore.js]
 M[wsHandler.js]
+N[实体解析模块]
+O[上下文分析模块]
 end
 F --> A
 F --> B
@@ -317,6 +435,8 @@ G --> K
 H --> I
 H --> J
 H --> K
+H --> N
+H --> O
 I --> E
 J --> L
 J --> I
@@ -368,6 +488,13 @@ L --> D
 - 请求超时控制：60秒默认超时
 - 优雅关闭：确保资源正确释放
 
+### 5. 实体解析优化
+- 数据库连接可用时优先查询真实数据
+- 支持模拟数据回退机制
+- 实体解析结果缓存
+
+**更新** 新增实体解析和上下文分析的性能优化策略，包括数据库连接优先级、模拟数据回退机制等。
+
 ## 故障排除指南
 
 ### 常见问题及解决方案
@@ -400,6 +527,15 @@ L --> D
 - 验证Schema配置文件格式
 - 确认向量数据库初始化状态
 
+#### 5. 实体解析失败
+**症状**：实体解析返回失败
+**解决方案**：
+- 检查数据库连接状态
+- 验证实体类型支持
+- 确认实体名称匹配规则
+
+**更新** 新增实体解析相关的故障排除指南。
+
 **章节来源**
 - [llmService.js:167-195](file://NL2SQL/backend/src/core/llmService.js#L167-L195)
 - [database.js:198-252](file://NL2SQL/backend/src/core/database.js#L198-L252)
@@ -414,6 +550,8 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 - **实时通信**：基于WebSocket的双向通信，提供良好的用户体验
 - **智能处理**：集成LLM服务，支持复杂的自然语言理解
 - **向量化搜索**：利用LanceDB实现语义相似度匹配
+- **实体解析**：智能实体映射，支持模糊描述到具体ID的转换
+- **上下文分析**：深度理解对话历史，提供准确的查询意图
 
 ### 功能特性
 - 完整的RESTful API接口
@@ -421,11 +559,13 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 - Schema元数据管理
 - 查询统计和监控
 - 自修复机制和健康检查
+- 实体解析和上下文理解
 
 ### 扩展建议
 1. **性能优化**：考虑添加查询缓存机制
 2. **安全增强**：实现更细粒度的权限控制
 3. **监控完善**：添加更详细的性能指标监控
 4. **文档改进**：完善API文档和使用示例
+5. **实体扩展**：支持更多类型的实体解析
 
-该系统为数据查询场景提供了强大的自然语言接口，能够有效降低数据分析的门槛，提高工作效率。
+该系统为数据查询场景提供了强大的自然语言接口，能够有效降低数据分析的门槛，提高工作效率。新增的实体解析和上下文分析功能进一步提升了系统的智能化水平，使其能够更好地理解和处理复杂的查询场景。
