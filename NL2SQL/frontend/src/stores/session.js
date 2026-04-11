@@ -66,6 +66,16 @@ export const useSessionStore = defineStore('session', () => {
    */
   const isProcessing = ref(false)
   
+  /**
+   * 处理状态文本
+   */
+  const processingStatus = ref('')
+  
+  /**
+   * 处理进度 (0-100)
+   */
+  const processingProgress = ref(0)
+  
   // ==========================================
   // Getters（计算属性）
   // ==========================================
@@ -243,14 +253,27 @@ export const useSessionStore = defineStore('session', () => {
         console.log('心跳响应:', data.data)
         break
         
+      case 'processing':
+        // 开始处理
+        processingStatus.value = data.data?.message || '正在处理...'
+        processingProgress.value = 0
+        console.log('开始处理:', data.data)
+        break
+        
       case 'progress':
         // 进度更新
+        if (data.data) {
+          processingStatus.value = data.data.message || data.data.stage || '处理中...'
+          processingProgress.value = data.data.progress || 0
+        }
         console.log('进度更新:', data.data)
         break
         
       case 'result':
         // 查询结果
         isProcessing.value = false
+        processingStatus.value = ''
+        processingProgress.value = 0
         addMessage({
           role: 'assistant',
           content: data.data.message,
@@ -265,6 +288,8 @@ export const useSessionStore = defineStore('session', () => {
       case 'clarify':
         // 需要澄清
         isProcessing.value = false
+        processingStatus.value = ''
+        processingProgress.value = 0
         addMessage({
           role: 'assistant',
           content: data.data.message,
@@ -275,6 +300,8 @@ export const useSessionStore = defineStore('session', () => {
       case 'error':
         // 错误消息
         isProcessing.value = false
+        processingStatus.value = ''
+        processingProgress.value = 0
         addMessage({
           role: 'assistant',
           content: data.data.message,
@@ -337,6 +364,8 @@ export const useSessionStore = defineStore('session', () => {
     messages,
     isConnected,
     isProcessing,
+    processingStatus,
+    processingProgress,
     // Getters
     currentSession,
     messageCount,

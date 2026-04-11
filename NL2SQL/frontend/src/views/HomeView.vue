@@ -103,6 +103,8 @@
 
 // 导入Vue Router
 import { useRouter } from 'vue-router'
+// 导入Element Plus消息组件
+import { ElMessage } from 'element-plus'
 // 导入Element Plus图标
 import { 
   DataLine, 
@@ -149,10 +151,15 @@ const sessionStore = useSessionStore()
  * 创建新会话并跳转到聊天页面
  */
 async function startChat() {
-  // 创建新会话
-  const sessionId = await sessionStore.createSession()
-  // 跳转到聊天页面
-  router.push(`/chat/${sessionId}`)
+  try {
+    // 创建新会话
+    const sessionId = await sessionStore.createSession()
+    // 跳转到聊天页面
+    router.push(`/chat/${sessionId}`)
+  } catch (error) {
+    ElMessage.error('创建会话失败，请重试')
+    console.error('创建会话失败:', error)
+  }
 }
 
 /**
@@ -167,11 +174,16 @@ function viewSchema() {
  * @param {string} example - 示例文本
  */
 async function useExample(example) {
-  // 创建新会话
-  const sessionId = await sessionStore.createSession()
-  // 跳转到聊天页面
-  router.push(`/chat/${sessionId}`)
-  // 注意：实际发送示例需要在ChatView组件中处理
+  try {
+    // 创建新会话
+    const sessionId = await sessionStore.createSession()
+    // 跳转到聊天页面
+    router.push(`/chat/${sessionId}`)
+    // 注意：实际发送示例需要在ChatView组件中处理
+  } catch (error) {
+    ElMessage.error('创建会话失败，请重试')
+    console.error('创建会话失败:', error)
+  }
 }
 </script>
 

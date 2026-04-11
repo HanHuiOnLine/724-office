@@ -81,7 +81,7 @@
 // ============================================
 
 // 从Vue导入响应式API和生命周期钩子
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 // 从Vue Router导入路由相关API
 import { useRouter } from 'vue-router'
 // 导入Element Plus图标组件
@@ -94,6 +94,8 @@ import {
   Expand,
   DataLine 
 } from '@element-plus/icons-vue'
+// 导入Element Plus消息组件
+import { ElMessage } from 'element-plus'
 // 导入会话状态管理
 import { useSessionStore } from './stores/session'
 // 导入Schema查看组件
@@ -114,10 +116,10 @@ const showSchema = ref(false)
 
 // 获取会话状态管理store
 const sessionStore = useSessionStore()
-// 从store获取会话列表
-const sessions = sessionStore.sessions
-// 从store获取当前会话ID
-const currentSessionId = sessionStore.currentSessionId
+// 从store获取会话列表 - 使用computed保持响应式
+const sessions = computed(() => sessionStore.sessions)
+// 从store获取当前会话ID - 使用computed保持响应式
+const currentSessionId = computed(() => sessionStore.currentSessionId)
 
 // ============================================
 // 路由
@@ -142,19 +144,27 @@ function toggleSidebar() {
  * 调用store的方法创建会话，并跳转到聊天页面
  */
 async function createNewSession() {
-  // 调用store创建新会话
-  const sessionId = await sessionStore.createSession()
-  // 跳转到聊天页面
-  router.push(`/chat/${sessionId}`)
+  try {
+    // 调用store创建新会话
+    const sessionId = await sessionStore.createSession()
+    // 跳转到聊天页面
+    router.push(`/chat/${sessionId}`)
+  } catch (error) {
+    ElMessage.error('创建会话失败，请重试')
+    console.error('创建新会话失败:', error)
+  }
 }
 
 /**
  * 切换会话
  * @param {string} sessionId - 会话ID
  */
-function switchSession(sessionId) {
+async function switchSession(sessionId) {
+  // 如果已经是当前会话，不做任何操作
+  if (currentSessionId.value === sessionId) return
+  
   // 设置当前会话
-  sessionStore.setCurrentSession(sessionId)
+  await sessionStore.setCurrentSession(sessionId)
   // 跳转到对应会话的聊天页面
   router.push(`/chat/${sessionId}`)
 }

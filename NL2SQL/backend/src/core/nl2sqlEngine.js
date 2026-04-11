@@ -25,32 +25,129 @@ const schemaLoader = require('./schemaLoader');
 const database = require('./database');
 
 // ============================================
+// 实体解析
+// ============================================
+
+/**
+ * 实体检索 - 尝试将模糊描述（如游戏名称）映射到具体ID
+ * 
+ * @param {string} entityName - 实体名称（如"青木"）
+ * @param {string} entityType - 实体类型（如"game", "channel"）
+ * @returns {Promise<Object>} {found: boolean, id?: string, name?: string}
+ */
+async function resolveEntity(entityName, entityType) {
+  logger.info('尝试解析实体', { entityName, entityType });
+  
+  // 获取数据库连接
+  const db = database.getConnection ? database.getConnection() : null;
+  
+  if (!db) {
+    logger.warn('数据库连接不可用，使用模拟数据');
+    // 模拟实体映射表，实际应从数据库查询
+    const mockEntities = {
+      '青木': { id: '30', name: '青木', type: 'game' },
+      '王者荣耀': { id: '1', name: '王者荣耀', type: 'game' },
+      '和平精英': { id: '2', name: '和平精英', type: 'game' }
+    };
+    
+    const entity = mockEntities[entityName];
+    if (entity && entity.type === entityType) {
+      return {
+        found: true,
+        id: entity.id,
+        name: entity.name,
+        confidence: 0.9
+      };
+    }
+    return { found: false };
+  }
+  
+  try {
+    // 根据实体类型查询不同的表
+    let sql;
+    if (entityType === 'game') {
+      sql = `SELECT game_id as id, game_name as name FROM game_list WHERE game_name LIKE ? LIMIT 5`;
+    } else if (entityType === 'channel') {
+      sql = `SELECT channel_id as id, channel_name as name FROM channel_list WHERE channel_name LIKE ? LIMIT 5`;
+    } else {
+      return { found: false };
+    }
+    
+    const results = await db.query(sql, [`%${entityName}%`]);
+    
+    if (results && results.length > 0) {
+      // 如果精确匹配，返回第一个
+      const exactMatch = results.find(r => r.name === entityName);
+      if (exactMatch) {
+        return {
+          found: true,
+          id: exactMatch.id,
+          name: exactMatch.name,
+          confidence: 1.0
+        };
+      }
+      // 否则返回最相似的
+      return {
+        found: true,
+        id: results[0].id,
+        name: results[0].name,
+        confidence: 0.7,
+        alternatives: results.slice(1).map(r => ({ id: r.id, name: r.name }))
+      };
+    }
+    
+    return { found: false };
+  } catch (error) {
+    logger.error('实体解析失败:', error);
+    return { found: false, error: error.message };
+  }
+}
+
+// ============================================
 // 意图识别
 // ============================================
 
 /**
- * 分析用户查询意图
+ * 分析用户查询意图（增强版：支持上下文理解）
  * 提取时间范围、维度、指标、筛选条件等
- * 注意：意图识别只分析当前查询，不依赖历史对话，避免干扰
  * 
  * @param {string} userQuery - 用户的自然语言查询
+ * @param {Array} history - 最近3-5轮对话历史（用于上下文理解）
  * @returns {Promise<Object>} 意图分析结果
  */
-async function analyzeIntent(userQuery) {
+async function analyzeIntent(userQuery, history = []) {
   // 记录开始分析日志
-  logger.debug('开始分析用户意图', { query: userQuery });
+  logger.debug('开始分析用户意图', { query: userQuery, historyLength: history.length });
   
   // 获取Schema摘要，帮助LLM理解数据结构
   const schemaSummary = schemaLoader.getSchemaSummary();
   
+  // 构建对话上下文摘要
+  let contextSummary = '';
+  if (history.length > 0) {
+    const recentHistory = history.slice(-5);
+    contextSummary = `
+对话上下文（最近${recentHistory.length}轮）:
+${recentHistory.map((h, i) => `${h.role === 'user' ? '用户' : '助手'}: ${h.content}`).join('\n')}
+
+重要：请结合上下文理解用户的当前查询。如果当前查询是对之前问题的补充或修正，请整合信息给出完整的意图。`;
+  }
+  
   // 构造系统提示词
-  const systemPrompt = `你是一位数据分析专家，负责理解用户的数据查询需求。
+  const systemPrompt = `你是一位有记忆的数据分析助手，负责理解用户的数据查询需求。
+
+你的任务是维护一个**持久化的查询状态**，结合【对话历史】和【当前输入】，判断用户在：
+- **补充信息**：完善之前的查询（如提供ID、修改时间范围）
+- **更换需求**：放弃之前的查询，开始新查询（如"算了，查XX"）
+- **全新查询**：与之前无关的独立查询
 
 数据库Schema概览:
 ${schemaSummary}
+${contextSummary}
 
-你的任务是分析**当前查询**的意图，提取以下信息并以JSON格式返回:
+请根据上述信息，更新查询状态并提取以下信息以JSON格式返回:
 {
+  "thought": "你的推理过程：1)用户想要什么数据 2)结合上下文理解了什么 3)如何解读当前查询",
   "time_range": {
     "type": "relative|absolute",
     "value": "最近7天|2024-01-01至2024-01-31"
@@ -60,30 +157,46 @@ ${schemaSummary}
   "filters": [{"field": "字段", "op": "=", "value": "值"}],
   "sort": {"by": "字段", "order": "desc"},
   "limit": 100,
-  "confidence": 0.9
+  "confidence": 0.9,
+  "isContextualQuery": false
 }
 
 重要规则:
-1. **只分析当前查询**，不要被历史对话干扰
-2. **metrics字段**: 必须基于当前查询提到的具体指标，常见指标包括：
-   - 流水、收入、金额、销售额、营收
-   - 订单数、订单量、成交量
-   - 用户数、注册用户数、活跃用户数
-   - 付费率、留存率、转化率
-   - 游戏时长、关卡进度
-   不要自行推断或添加其他指标
-3. time_range: 识别时间范围，支持相对时间（最近N天/周/月）和绝对时间（具体日期）
-4. dimensions: 识别分组维度（按什么维度查看）
-5. filters: 识别筛选条件（如游戏名称、渠道等）
-6. sort: 识别排序要求
-7. limit: 识别返回数量限制
+1. **深度融合上下文**：如果用户说"那上个月呢？"、"加上游戏ID过滤"等，结合历史对话理解完整意图
+2. **智能修正**：如果用户说"算了，查XX"、"不要流水了"，理解为用户想更换指标，不要保留旧指标
+3. **isContextualQuery**: 如果当前查询依赖上下文才能理解（如"那上个月呢？"），设为true
+4. **metrics字段**: 基于当前查询+上下文提到的具体指标识别
+
+## 字段别名参考（用户说法 → Schema字段映射）
+
+**收入类指标：**
+- 流水/收入/充值/销售额/营收/金额 → 指标：收入金额
+- 订单数/订单量/成交量/付费笔数 → 指标：付费订单数
+
+**用户类指标：**
+- 用户数/注册用户数/新增用户 → 指标：注册用户数
+- 活跃用户/DAU/日活/玩家数 → 指标：日活跃用户数
+- 在线人数/同时在线/PCU → 指标：最高同时在线
+
+**比率类指标：**
+- 付费率/付费占比/充值率 → 指标：付费率
+- 留存率/次日留存/7日留存 → 指标：留存率
+- 转化率/转化占比 → 指标：转化率
+
+**筛选字段：**
+- 游戏/产品/应用 → 字段：game_id
+- 渠道/平台/来源 → 字段：channel_id
+- 区服/服务器 → 字段：server_id
+- 日期/时间/天 → 字段：create_time 或 date
+
+5. time_range: 识别时间范围，支持相对时间和绝对时间
+6. dimensions: 识别分组维度（按什么维度查看，如按日期、按渠道）
+7. filters: 识别筛选条件，如果用户提供了更精确的标识符（如ID），优先使用并自动关联之前的模糊描述
 8. confidence: 置信度（0-1），信息越完整置信度越高
 
 只返回JSON，不要其他解释。`;
 
   // 构造用户提示词
-  // 意图识别只关注当前查询，不依赖历史对话
-  // 这样可以避免历史对话干扰当前查询的意图理解
   const userPrompt = userQuery;
   
   try {
@@ -215,6 +328,81 @@ async function mergeIntent(historicalIntent, currentIntent, supplementQuery) {
     mergedFilters: mergedIntent.filters
   });
   return mergedIntent;
+}
+
+/**
+ * 使用LLM智能更新意图
+ * 将"状态管理"交给LLM，而非硬代码合并
+ * 
+ * @param {Object} previousIntent - 上一次的意图JSON
+ * @param {string} newQuery - 用户最新的话
+ * @param {Array} history - 对话历史
+ * @returns {Promise<Object>} 更新后的意图
+ */
+async function updateIntentWithLLM(previousIntent, newQuery, history) {
+  logger.info('使用LLM更新意图', { 
+    previousQuery: previousIntent.original_query,
+    newQuery 
+  });
+
+  const schemaSummary = schemaLoader.getSchemaSummary();
+
+  const systemPrompt = `你是一位意图理解专家。你的任务是根据用户的新输入，更新当前的查询意图。
+
+当前意图状态:
+${JSON.stringify(previousIntent, null, 2)}
+
+用户最新输入: "${newQuery}"
+
+数据库Schema概览:
+${schemaSummary}
+
+请分析：
+1. 用户是在补充信息（如提供game_id），还是在修改需求（如换指标）？
+2. 如果是补充：将新信息合并到当前意图
+3. 如果是修改：用新需求替换相关字段
+4. 如果是完全新的查询：创建新意图
+
+返回更新后的完整意图JSON:
+{
+  "thought": "推理过程：用户想做什么？是补充还是修改？",
+  "time_range": {...},
+  "dimensions": [...],
+  "metrics": [...],
+  "filters": [...],
+  "sort": {...},
+  "limit": 100,
+  "confidence": 0.9,
+  "updateType": "merge|replace|new"
+}
+
+updateType说明:
+- merge: 用户补充信息（如"game_id=30"）
+- replace: 用户修改部分需求（如"算了，查活跃人数"）
+- new: 完全新的查询，与之前无关
+
+只返回JSON，不要其他解释。`;
+
+  try {
+    const response = await llmService.simpleChat('', systemPrompt);
+    const updatedIntent = parseJSONResponse(response);
+    
+    // 保留原始查询信息
+    updatedIntent.original_query = newQuery;
+    updatedIntent.previous_query = previousIntent.original_query;
+    
+    logger.info('意图更新完成', { 
+      updateType: updatedIntent.updateType,
+      metrics: updatedIntent.metrics,
+      confidence: updatedIntent.confidence 
+    });
+    
+    return updatedIntent;
+  } catch (error) {
+    logger.error('LLM意图更新失败，回退到手动合并:', error);
+    // 回退到原来的合并逻辑
+    return mergeIntent(previousIntent, { original_query: newQuery, confidence: 0.5 }, newQuery);
+  }
 }
 
 /**
@@ -357,21 +545,62 @@ SQL生成规则:
 7. 复杂的查询使用CTE（WITH子句）提高可读性
 8. 添加适当的注释说明
 
-重要：信息确认规则
-- 如果查询中提到游戏名称（如"青木"），但Schema中只有game_id数字字段，没有游戏名称映射表，必须询问用户确认
-- 如果查询中的条件无法匹配到具体的表字段，必须询问用户确认
-- 如果对用户意图有任何不确定，必须询问用户确认
-- 只有当信息完全明确时，才生成SQL
+智能推断规则（重要）：
+- 如果用户提供了更精确的标识符（如ID），优先使用并自动关联之前的模糊描述（如名称），直接生成SQL
+- 只有在存在逻辑冲突或无法合理推断时，才需要询问用户确认
+- 默认执行合理假设，不要事无巨细地确认
+- 例如：用户说"青木的游戏id是30"，应直接使用game_id=30，无需再次确认是否忽略"青木"
+
+## Few-Shot 示例
+
+**示例 1 - 补充回答直接执行：**
+对话历史：
+- 用户：青木上个月流水
+- 助手：请提供青木的游戏ID
+- 用户：id 是 30
+
+你的输出：
+{
+  "thought": "用户之前询问青木的流水，现在提供了 game_id=30，信息已完整，可以直接生成SQL查询青木游戏上个月的收入数据",
+  "sql": "SELECT DATE_FORMAT(create_time, '%Y-%m-%d') as date, SUM(amount) as revenue FROM tzpingtai_tz_sdk_log_pf_order WHERE game_id = 30 AND create_time >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH) GROUP BY date ORDER BY date LIMIT 1000",
+  "explanation": "查询青木游戏（game_id=30）最近一个月的每日流水收入"
+}
+
+**示例 2 - 用户更换指标：**
+对话历史：
+- 用户：查下昨天的流水
+- 用户：算了，查活跃人数吧
+
+你的输出：
+{
+  "thought": "用户说'算了，查活跃人数'，明确表示要更换指标，放弃之前的流水查询，应该查询昨天的活跃用户数",
+  "sql": "SELECT COUNT(DISTINCT user_id) as dau FROM user_login_log WHERE DATE(login_time) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) LIMIT 1000",
+  "explanation": "查询昨天的日活跃用户数（DAU）"
+}
+
+**示例 3 - 上下文理解：**
+对话历史：
+- 用户：王者荣耀最近7天的数据
+- 用户：那流水呢？
+
+你的输出：
+{
+  "thought": "用户之前询问王者荣耀的数据，现在问'那流水呢'，结合上下文理解为查询王者荣耀最近7天的流水收入",
+  "sql": "SELECT DATE_FORMAT(create_time, '%Y-%m-%d') as date, SUM(amount) as revenue FROM tzpingtai_tz_sdk_log_pf_order WHERE game_id = 1 AND create_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) GROUP BY date ORDER BY date LIMIT 1000",
+  "explanation": "查询王者荣耀（game_id=1）最近7天的每日流水收入"
+}
 
 返回格式（信息明确时）:
 {
+  "thought": "推理过程：1)用户想要什么 2)Schema如何支持 3)如何构建SQL",
   "sql": "生成的SQL语句",
   "explanation": "这段SQL的作用说明"
 }
 
-返回格式（需要确认时）:
+返回格式（确实无法推断时）:
 {
   "needClarification": true,
+  "thought": "为什么无法推断",
   "clarificationQuestion": "需要向用户确认的问题"
 }`;
 
@@ -612,44 +841,49 @@ async function processQuery(userQuery, sessionId, onProgress = null) {
     const history = await database.getSessionMessages(sessionId, 10);
     
     // ----------------------------------------
-    // 步骤2: 意图识别（只分析当前查询，不依赖历史）
+    // 步骤2: 意图识别（融合上下文）
     // ----------------------------------------
     sendProgress('analyzing', { message: '分析查询意图...' });
-    let intent = await analyzeIntent(userQuery);
+    
+    // 获取最近5轮对话用于上下文理解
+    const recentHistory = history.slice(-5);
+    let intent = await analyzeIntent(userQuery, recentHistory);
     
     // 保存用户消息到会话
     await database.addMessage(sessionId, 'user', userQuery, 'text');
     
     // ----------------------------------------
-    // 步骤2.5: 检查是否是补充回答（对之前澄清的回应）
+    // 步骤2.5: 检查是否是上下文查询，使用LLM智能更新意图
     // ----------------------------------------
-    // 如果当前查询意图不完整，但历史上有等待澄清的意图，尝试合并
-    // 注意：使用 slice().reverse() 避免修改原数组
     const lastAssistantMsg = [...history].reverse().find(h => h.role === 'assistant');
     
-    logger.info('检查补充回答', {
+    logger.info('检查上下文查询', {
       lastAssistantRole: lastAssistantMsg?.role,
       lastAssistantType: lastAssistantMsg?.type,
       currentIntentMetrics: intent.metrics,
       currentIntentConfidence: intent.confidence,
+      isContextualQuery: intent.isContextualQuery,
       hasHistoricalIntent: !!lastAssistantMsg?.metadata?.intent
     });
     
-    const isSupplementAnswer = lastAssistantMsg && 
-                               lastAssistantMsg.type === 'clarify';
+    // 判断是否为上下文依赖型查询
+    const isContextualQuery = intent.isContextualQuery || 
+                              (lastAssistantMsg && lastAssistantMsg.type === 'clarify') ||
+                              (intent.confidence < 0.5 && history.length > 0);
     
-    if (isSupplementAnswer && lastAssistantMsg.metadata && lastAssistantMsg.metadata.intent) {
-      logger.info('检测到补充回答，合并历史意图', { 
+    if (isContextualQuery && lastAssistantMsg?.metadata?.intent) {
+      logger.info('检测到上下文查询，使用LLM更新意图', { 
         currentQuery: userQuery,
-        historicalIntent: lastAssistantMsg.metadata.intent.original_query,
-        historicalMetrics: lastAssistantMsg.metadata.intent.metrics
+        previousIntent: lastAssistantMsg.metadata.intent.original_query,
+        reason: intent.isContextualQuery ? 'LLM标记为上下文查询' : 
+                (lastAssistantMsg.type === 'clarify' ? '上一轮是澄清' : '置信度低')
       });
       
-      // 使用历史意图作为基础，当前查询作为补充
-      const historicalIntent = lastAssistantMsg.metadata.intent;
-      intent = await mergeIntent(historicalIntent, intent, userQuery);
+      const previousIntent = lastAssistantMsg.metadata.intent;
+      intent = await updateIntentWithLLM(previousIntent, userQuery, recentHistory);
       
-      logger.info('意图合并后', {
+      logger.info('意图更新后', {
+        updateType: intent.updateType,
         mergedMetrics: intent.metrics,
         mergedTimeRange: intent.time_range,
         mergedConfidence: intent.confidence
@@ -824,5 +1058,8 @@ module.exports = {
   generateSQL,
   validateSQL,
   executeQuery,
-  formatResult
+  formatResult,
+  // 新增功能
+  updateIntentWithLLM,
+  resolveEntity
 };

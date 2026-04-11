@@ -32,7 +32,7 @@
           <el-avatar :size="36" :icon="UserFilled" class="avatar" />
           <div class="message-body">
             <!-- 文本内容 -->
-            <div class="message-content" v-html="renderContent(message)"></div>
+            <div class="message-content markdown-body" v-html="renderContent(message)"></div>
             
             <!-- SQL代码块 -->
             <div v-if="message.metadata?.sql" class="sql-block">
@@ -47,7 +47,7 @@
                   复制
                 </el-button>
               </div>
-              <pre class="sql-code"><code>{{ message.metadata.sql }}</code></pre>
+              <pre class="sql-code"><code v-html="renderSQLCode(message.metadata.sql)"></code></pre>
             </div>
             
             <!-- 数据表格 -->
@@ -71,13 +71,25 @@
         </div>
       </div>
       
-      <!-- 正在输入指示器 -->
-      <div v-if="isProcessing" class="typing-indicator">
+      <!-- 处理状态指示器 -->
+      <div v-if="isProcessing" class="processing-indicator">
         <el-avatar :size="36" :icon="UserFilled" class="avatar" />
-        <div class="typing-dots">
-          <span></span>
-          <span></span>
-          <span></span>
+        <div class="processing-body">
+          <!-- 进度状态显示 -->
+          <div v-if="processingStatus" class="processing-status">
+            <el-icon class="status-icon"><Loading /></el-icon>
+            <span class="status-text">{{ processingStatus }}</span>
+          </div>
+          <!-- 打字动画 -->
+          <div v-else class="typing-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <!-- 进度条 -->
+          <div v-if="processingProgress > 0" class="progress-bar">
+            <div class="progress-fill" :style="{ width: processingProgress + '%' }"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -121,17 +133,17 @@
 // ============================================
 
 // 从Vue导入响应式API和生命周期钩子
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 // 从Vue Router导入路由相关API
 import { useRoute } from 'vue-router'
 // 导入Element Plus图标
-import { ChatDotRound, UserFilled, Promotion, CopyDocument } from '@element-plus/icons-vue'
+import { ChatDotRound, UserFilled, Promotion, CopyDocument, Loading } from '@element-plus/icons-vue'
 // 导入Element Plus消息组件
 import { ElMessage } from 'element-plus'
 // 导入会话状态管理
 import { useSessionStore } from '../stores/session'
-// 导入marked库用于渲染Markdown
-import { marked } from 'marked'
+// 导入Markdown渲染工具
+import { renderMarkdown, renderSQL } from '../utils/markdownRenderer'
 
 // ============================================
 // 响应式状态
@@ -150,8 +162,12 @@ const messagesContainer = ref(null)
 const sessionStore = useSessionStore()
 // 从store获取消息列表
 const messages = sessionStore.messages
-// 从store获取处理状态
-const isProcessing = sessionStore.isProcessing
+// 从store获取处理状态 - 使用computed保持响应式
+const isProcessing = computed(() => sessionStore.isProcessing)
+// 从store获取处理状态文本
+const processingStatus = computed(() => sessionStore.processingStatus)
+// 从store获取处理进度
+const processingProgress = computed(() => sessionStore.processingProgress)
 
 // ============================================
 // 路由
@@ -207,9 +223,18 @@ function handleEnter(e) {
 function renderContent(message) {
   if (!message.content) return ''
   
-  // 使用marked将Markdown转为HTML
-  // 注意：实际生产环境需要做好XSS防护
-  return marked(message.content)
+  // 使用markdown-it渲染Markdown
+  return renderMarkdown(message.content)
+}
+
+/**
+ * 渲染SQL代码
+ * 使用Shiki进行代码高亮
+ */
+function renderSQLCode(sql) {
+  if (!sql) return ''
+  
+  return renderSQL(sql)
 }
 
 /**
@@ -244,15 +269,8 @@ function scrollToBottom() {
  * 组件挂载时执行
  */
 onMounted(() => {
-  // 获取路由参数中的会话ID
-  const sessionId = route.params.sessionId
-  
-  if (sessionId) {
-    // 设置当前会话
-    sessionStore.setCurrentSession(sessionId)
-    // 连接WebSocket
-    sessionStore.connectWebSocket()
-  }
+  // 初始化当前会话
+  initSession()
   
   // 滚动到底部
   scrollToBottom()
@@ -264,6 +282,40 @@ onMounted(() => {
 onUnmounted(() => {
   // 断开WebSocket连接
   sessionStore.disconnectWebSocket()
+})
+
+/**
+ * 初始化会话
+ * 设置当前会话并连接WebSocket
+ */
+async function initSession() {
+  // 获取路由参数中的会话ID
+  const sessionId = route.params.sessionId
+  
+  if (sessionId) {
+    // 设置当前会话
+    await sessionStore.setCurrentSession(sessionId)
+    // 连接WebSocket
+    sessionStore.connectWebSocket()
+    // 滚动到底部
+    scrollToBottom()
+  }
+}
+
+// ============================================
+// 监听器
+// ============================================
+
+/**
+ * 监听路由参数变化，切换会话时重新初始化
+ */
+watch(() => route.params.sessionId, (newSessionId, oldSessionId) => {
+  if (newSessionId && newSessionId !== oldSessionId) {
+    // 断开旧连接
+    sessionStore.disconnectWebSocket()
+    // 初始化新会话
+    initSession()
+  }
 })
 
 // ============================================
@@ -408,25 +460,67 @@ watch(isProcessing, (newVal) => {
   margin-top: 12px;
 }
 
-/* 正在输入指示器 */
-.typing-indicator {
+/* 处理状态指示器 */
+.processing-indicator {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 20px;
 }
 
-.typing-indicator .avatar {
+.processing-indicator .avatar {
   margin-right: 12px;
   background-color: #409eff;
+}
+
+.processing-body {
+  flex: 1;
+  background-color: #f4f4f5;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border-top-left-radius: 2px;
+}
+
+.processing-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #606266;
+  font-size: 14px;
+}
+
+.processing-status .status-icon {
+  animation: rotating 2s linear infinite;
+  color: #409eff;
+}
+
+@keyframes rotating {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.progress-bar {
+  margin-top: 8px;
+  height: 4px;
+  background-color: #e4e7ed;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #409eff, #79bbff);
+  border-radius: 2px;
+  transition: width 0.3s ease;
 }
 
 .typing-dots {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 12px 16px;
-  background-color: #f4f4f5;
-  border-radius: 8px;
 }
 
 .typing-dots span {
@@ -452,6 +546,113 @@ watch(isProcessing, (newVal) => {
   40% {
     transform: scale(1);
   }
+}
+
+/* Markdown 样式 */
+.markdown-body {
+  line-height: 1.8;
+}
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4),
+.markdown-body :deep(h5),
+.markdown-body :deep(h6) {
+  margin-top: 16px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.markdown-body :deep(h1) { font-size: 1.5em; }
+.markdown-body :deep(h2) { font-size: 1.3em; }
+.markdown-body :deep(h3) { font-size: 1.1em; }
+
+.markdown-body :deep(p) {
+  margin: 8px 0;
+}
+
+.markdown-body :deep(code) {
+  background-color: #f5f7fa;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #e83e8c;
+}
+
+.markdown-body :deep(pre) {
+  background-color: #282c34;
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.markdown-body :deep(pre code) {
+  background-color: transparent;
+  padding: 0;
+  color: #abb2bf;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.markdown-body :deep(li) {
+  margin: 4px 0;
+}
+
+.markdown-body :deep(blockquote) {
+  border-left: 4px solid #409eff;
+  margin: 12px 0;
+  padding: 8px 16px;
+  background-color: #f5f7fa;
+  color: #606266;
+}
+
+.markdown-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  border: 1px solid #dcdfe6;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-body :deep(th) {
+  background-color: #f5f7fa;
+  font-weight: 600;
+}
+
+.markdown-body :deep(a) {
+  color: #409eff;
+  text-decoration: none;
+}
+
+.markdown-body :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.markdown-body :deep(.mermaid) {
+  text-align: center;
+  margin: 16px 0;
+}
+
+.markdown-body :deep(.katex) {
+  font-size: 1.1em;
+}
+
+.markdown-body :deep(.katex-display) {
+  margin: 16px 0;
+  overflow-x: auto;
 }
 
 /* 输入区域 */
