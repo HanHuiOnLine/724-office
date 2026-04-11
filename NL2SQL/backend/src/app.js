@@ -4,7 +4,7 @@
  * 这是整个后端服务的启动入口，负责：
  * 1. 加载环境变量配置
  * 2. 初始化各个核心模块
- * 3. 启动HTTP服务器和WebSocket服务
+ * 3. 启动HTTP服务器和SSE服务
  * 4. 处理优雅关闭
  */
 
@@ -21,9 +21,7 @@ require('dotenv').config();
 
 // 导入Express框架，用于创建HTTP服务器
 const express = require('express');
-// 导入WebSocket库，用于实现实时通信
-const WebSocket = require('ws');
-// 导入HTTP模块，用于创建HTTP服务器（WebSocket需要）
+// 导入HTTP模块，用于创建HTTP服务器
 const http = require('http');
 // 导入CORS中间件，用于处理跨域请求
 const cors = require('cors');
@@ -46,8 +44,6 @@ const logger = require('./utils/logger');
 const database = require('./core/database');
 // 导入向量数据库初始化模块，负责LanceDB的初始化
 const vectorStore = require('./memory/vectorStore');
-// 导入WebSocket处理器，处理所有WebSocket连接和消息
-const wsHandler = require('./core/wsHandler');
 // 导入API路由模块，定义RESTful API端点
 const routes = require('./core/routes');
 // 导入自修复调度器，负责定时健康检查和维护任务
@@ -88,27 +84,7 @@ app.use('/api', routes);
 // ============================================
 
 // 使用Node.js原生http模块创建服务器
-// 这样做是为了让Express和WebSocket共享同一个HTTP服务器
 const server = http.createServer(app);
-
-// ============================================
-// 创建WebSocket服务器
-// ============================================
-
-// 创建WebSocket服务器实例
-// server: 指定要绑定的HTTP服务器
-// path: WebSocket端点路径为 /ws
-const wss = new WebSocket.Server({ 
-  server: server,
-  path: '/ws'
-});
-
-// 监听WebSocket连接事件
-// 每当有新的客户端连接时，触发这个回调
-wss.on('connection', (ws, req) => {
-  // 调用WebSocket处理器处理新连接
-  wsHandler.handleConnection(ws, req);
-});
 
 // ============================================
 // 初始化服务
@@ -174,7 +150,7 @@ async function initialize() {
     // 监听指定端口，开始接收请求
     server.listen(port, () => {
       logger.info(`HTTP服务器已启动，监听端口: ${port}`);
-      logger.info(`WebSocket端点: ws://localhost:${port}/ws`);
+      logger.info(`SSE端点: http://localhost:${port}/api/sse/stream`);
       logger.info(`API地址: http://localhost:${port}/api`);
       logger.info('========================================');
       logger.info('NL2SQL 服务启动成功！');
@@ -211,14 +187,10 @@ async function gracefulShutdown() {
   });
 
   // ----------------------------------------
-  // 步骤2：关闭WebSocket连接
+  // 步骤2：关闭SSE连接
   // ----------------------------------------
-  // 向所有连接的客户端发送关闭通知
-  wss.clients.forEach((ws) => {
-    // 1001表示服务器正在关闭
-    ws.close(1001, '服务器正在关闭');
-  });
-  logger.info('WebSocket连接已关闭');
+  // SSE连接会在HTTP服务器关闭时自动断开
+  logger.info('SSE连接已关闭');
 
   // ----------------------------------------
   // 步骤3：停止定时任务

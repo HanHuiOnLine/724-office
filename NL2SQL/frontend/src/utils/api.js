@@ -230,3 +230,22 @@ export function getStats() {
 export function getConfig() {
   return apiClient.get('/config')
 }
+
+// ============================================
+// SSE API
+// ============================================
+
+/**
+ * 发送查询请求
+ * 通过HTTP POST发送查询，结果通过SSE推送
+ * 
+ * @param {string} sessionId - 会话ID
+ * @param {string} query - 查询内容
+ * @returns {Promise<Object>} 提交结果
+ */
+export function sendQuery(sessionId, query) {
+  return apiClient.post('/sse/query', {
+    session_id: sessionId,
+    query: query
+  })
+}

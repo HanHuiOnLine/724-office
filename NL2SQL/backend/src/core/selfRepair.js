@@ -22,8 +22,8 @@ const logger = require('../utils/logger');
 const database = require('./database');
 // 导入向量存储模块
 const vectorStore = require('../memory/vectorStore');
-// 导入WebSocket处理器
-const wsHandler = require('./wsHandler');
+// 导入SSE处理器
+const sseHandler = require('./sseHandler');
 
 // ============================================
 // 定时任务引用
@@ -229,7 +229,7 @@ async function performDailyCheck() {
     // 检查4：活跃会话
     // ----------------------------------------
     try {
-      const activeConnections = wsHandler.getConnectionCount();
+      const activeConnections = sseHandler.getConnectionCount();
       report.checks.connections = {
         status: 'ok',
         activeConnections: activeConnections
@@ -359,7 +359,7 @@ async function cleanupSessions() {
 async function collectStats() {
   try {
     // 获取当前连接数
-    const connections = wsHandler.getConnectionCount();
+    const connections = sseHandler.getConnectionCount();
     
     // 获取内存使用
     const memory = process.memoryUsage();

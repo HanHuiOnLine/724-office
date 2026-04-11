@@ -30,13 +30,7 @@ export default {
         // 改变请求的origin，使其与后端服务一致
         changeOrigin: true
       },
-      // 将/ws开头的WebSocket请求代理到后端服务
-      '/ws': {
-        target: 'ws://localhost:3000',
-        // WebSocket代理
-        ws: true,
-        changeOrigin: true
-      }
+
     }
   },
   

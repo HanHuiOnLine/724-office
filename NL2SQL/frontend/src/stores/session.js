@@ -5,7 +5,7 @@
  * 1. 会话列表
  * 2. 当前会话
  * 3. 消息历史
- * 4. WebSocket连接
+ * 4. SSE连接
  */
 
 // ============================================
@@ -52,9 +52,9 @@ export const useSessionStore = defineStore('session', () => {
   const messages = ref([])
   
   /**
-   * WebSocket连接实例
+   * SSE连接实例
    */
-  const wsConnection = ref(null)
+  const sseConnection = ref(null)
   
   /**
    * 连接状态
@@ -179,78 +179,56 @@ export const useSessionStore = defineStore('session', () => {
   }
   
   /**
-   * 连接WebSocket
-   * 建立与后端的实时通信连接
+   * 连接SSE
+   * 建立与后端的Server-Sent Events连接
    */
-  function connectWebSocket() {
+  function connectSSE() {
     // 如果已有连接，先关闭
-    if (wsConnection.value) {
-      wsConnection.value.close()
+    if (sseConnection.value) {
+      sseConnection.value.close()
     }
     
-    // 构建WebSocket URL
-    const wsUrl = `ws://${window.location.host}/ws?session_id=${currentSessionId.value}`
+    // 构建SSE URL
+    const sseUrl = `/api/sse/stream?session_id=${currentSessionId.value}`
     
-    // 创建WebSocket连接
-    const ws = new WebSocket(wsUrl)
+    // 创建SSE连接
+    const eventSource = new EventSource(sseUrl)
     
     // 连接建立时
-    ws.onopen = () => {
-      console.log('WebSocket连接已建立')
+    eventSource.onopen = () => {
+      console.log('SSE连接已建立')
       isConnected.value = true
     }
     
     // 收到消息时
-    ws.onmessage = (event) => {
+    eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
-        handleWebSocketMessage(data)
+        handleSSEMessage(data)
       } catch (error) {
-        console.error('解析WebSocket消息失败:', error)
+        console.error('解析SSE消息失败:', error)
       }
     }
     
-    // 连接关闭时
-    ws.onclose = () => {
-      console.log('WebSocket连接已关闭')
-      isConnected.value = false
-      wsConnection.value = null
-    }
-    
     // 连接错误时
-    ws.onerror = (error) => {
-      console.error('WebSocket错误:', error)
+    eventSource.onerror = (error) => {
+      console.error('SSE错误:', error)
       isConnected.value = false
     }
     
     // 保存连接实例
-    wsConnection.value = ws
+    sseConnection.value = eventSource
   }
   
   /**
-   * 处理WebSocket消息
+   * 处理SSE消息
    * @param {Object} data - 消息数据
    */
-  function handleWebSocketMessage(data) {
+  function handleSSEMessage(data) {
     switch (data.type) {
       case 'connected':
         // 连接成功
         console.log('服务器连接成功:', data.data)
-        break
-
-      case 'ping':
-        // 收到心跳ping，回复pong
-        if (wsConnection.value && wsConnection.value.readyState === WebSocket.OPEN) {
-          wsConnection.value.send(JSON.stringify({
-            type: 'pong',
-            data: { timestamp: Date.now() }
-          }))
-        }
-        break
-
-      case 'pong':
-        // 收到心跳pong响应
-        console.log('心跳响应:', data.data)
         break
         
       case 'processing':
@@ -318,10 +296,10 @@ export const useSessionStore = defineStore('session', () => {
    * 发送查询请求
    * @param {string} query - 用户查询
    */
-  function sendQuery(query) {
-    // 检查WebSocket连接
-    if (!wsConnection.value || wsConnection.value.readyState !== WebSocket.OPEN) {
-      console.error('WebSocket未连接')
+  async function sendQuery(query) {
+    // 检查SSE连接
+    if (!sseConnection.value || sseConnection.value.readyState !== EventSource.OPEN) {
+      console.error('SSE未连接')
       return
     }
     
@@ -335,20 +313,27 @@ export const useSessionStore = defineStore('session', () => {
     // 标记正在处理
     isProcessing.value = true
     
-    // 发送查询消息
-    wsConnection.value.send(JSON.stringify({
-      type: 'query',
-      data: { query }
-    }))
+    try {
+      // 通过HTTP POST发送查询请求
+      await api.sendQuery(currentSessionId.value, query)
+    } catch (error) {
+      console.error('发送查询失败:', error)
+      isProcessing.value = false
+      addMessage({
+        role: 'assistant',
+        content: '发送查询失败，请稍后重试',
+        type: 'error'
+      })
+    }
   }
   
   /**
-   * 关闭WebSocket连接
+   * 关闭SSE连接
    */
-  function disconnectWebSocket() {
-    if (wsConnection.value) {
-      wsConnection.value.close()
-      wsConnection.value = null
+  function disconnectSSE() {
+    if (sseConnection.value) {
+      sseConnection.value.close()
+      sseConnection.value = null
       isConnected.value = false
     }
   }
@@ -372,7 +357,7 @@ export const useSessionStore = defineStore('session', () => {
       if (currentSessionId.value === sessionId) {
         currentSessionId.value = null
         messages.value = []
-        disconnectWebSocket()
+        disconnectSSE()
       }
       
       return true
@@ -404,9 +389,9 @@ export const useSessionStore = defineStore('session', () => {
     setCurrentSession,
     loadMessages,
     addMessage,
-    connectWebSocket,
+    connectSSE,
     sendQuery,
-    disconnectWebSocket,
+    disconnectSSE,
     deleteSession
   }
 })

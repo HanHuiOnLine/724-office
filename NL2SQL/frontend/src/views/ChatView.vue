@@ -193,7 +193,7 @@ function sendMessage() {
   // 检查是否正在处理
   if (isProcessing.value) return
   
-  // 通过WebSocket发送查询
+  // 通过SSE发送查询
   sessionStore.sendQuery(content)
   
   // 清空输入框
@@ -280,13 +280,13 @@ onMounted(() => {
  * 组件卸载时执行
  */
 onUnmounted(() => {
-  // 断开WebSocket连接
-  sessionStore.disconnectWebSocket()
+  // 断开SSE连接
+  sessionStore.disconnectSSE()
 })
 
 /**
  * 初始化会话
- * 设置当前会话并连接WebSocket
+ * 设置当前会话并连接SSE
  */
 async function initSession() {
   // 获取路由参数中的会话ID
@@ -295,8 +295,8 @@ async function initSession() {
   if (sessionId) {
     // 设置当前会话
     await sessionStore.setCurrentSession(sessionId)
-    // 连接WebSocket
-    sessionStore.connectWebSocket()
+    // 连接SSE
+    sessionStore.connectSSE()
     // 滚动到底部
     scrollToBottom()
   }
@@ -312,7 +312,7 @@ async function initSession() {
 watch(() => route.params.sessionId, (newSessionId, oldSessionId) => {
   if (newSessionId && newSessionId !== oldSessionId) {
     // 断开旧连接
-    sessionStore.disconnectWebSocket()
+    sessionStore.disconnectSSE()
     // 初始化新会话
     initSession()
   }

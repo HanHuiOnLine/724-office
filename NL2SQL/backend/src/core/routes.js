@@ -23,8 +23,8 @@ const config = require('./config');
 const schemaLoader = require('./schemaLoader');
 // 导入数据库模块
 const database = require('./database');
-// 导入WebSocket处理器，获取连接统计
-const wsHandler = require('./wsHandler');
+// 导入SSE处理器，获取连接统计
+const sseHandler = require('./sseHandler');
 
 // ============================================
 // 创建路由实例
@@ -116,10 +116,10 @@ router.get('/health/detail', async (req, res) => {
         status: schemaLoader.getAllTables().length > 0 ? 'ok' : 'error',
         tables: schemaLoader.getAllTables().length
       },
-      // WebSocket连接状态
-      websocket: {
+      // SSE连接状态
+      sse: {
         status: 'ok',
-        connections: wsHandler.getConnectionCount()
+        connections: sseHandler.getConnectionCount()
       }
     }
   };
@@ -473,7 +473,7 @@ router.get('/stats', async (req, res) => {
     const stats = {
       timestamp: new Date().toISOString(),
       connections: {
-        websocket: wsHandler.getConnectionCount()
+        sse: sseHandler.getConnectionCount()
       },
       queries: {
         today: todayStats || {
@@ -531,6 +531,58 @@ router.get('/config', (req, res) => {
       vector_search: true
     }
   });
+});
+
+// ============================================
+// SSE接口
+// ============================================
+
+/**
+ * GET /api/sse/stream
+ * SSE连接端点
+ * 建立Server-Sent Events连接，用于接收流式消息
+ * 
+ * 查询参数：
+ * - session_id: 会话ID（必需）
+ * - user_id: 用户ID（可选，默认anonymous）
+ */
+router.get('/sse/stream', async (req, res) => {
+  await sseHandler.handleConnection(req, res);
+});
+
+/**
+ * POST /api/sse/query
+ * 发送查询请求
+ * 通过HTTP POST发送查询，结果通过SSE推送
+ * 
+ * 请求体：
+ * {
+ *   session_id: "会话ID",
+ *   query: "查询内容"
+ * }
+ */
+router.post('/sse/query', async (req, res) => {
+  try {
+    const { session_id, query } = req.body;
+    
+    if (!session_id) {
+      return res.status(400).json({ error: '缺少session_id参数' });
+    }
+    
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ error: '查询内容不能为空' });
+    }
+    
+    // 异步处理查询，结果通过SSE推送
+    sseHandler.handleQuery(session_id, query);
+    
+    // 立即返回成功响应
+    res.json({ success: true, message: '查询已提交，请通过SSE接收结果' });
+    
+  } catch (error) {
+    logger.error('提交查询失败:', error);
+    res.status(500).json({ error: '提交查询失败: ' + error.message });
+  }
 });
 
 // ============================================
