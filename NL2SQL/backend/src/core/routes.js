@@ -573,6 +573,14 @@ router.post('/sse/query', async (req, res) => {
       return res.status(400).json({ error: '查询内容不能为空' });
     }
     
+    // 检查会话标题，如果是默认标题则更新为查询内容
+    const session = await database.getSession(session_id);
+    if (session && session.title === '新会话') {
+      // 截取查询内容前20个字符作为标题
+      const newTitle = query.trim().slice(0, 20) + (query.trim().length > 20 ? '...' : '');
+      await database.updateSessionTitle(session_id, newTitle);
+    }
+    
     // 异步处理查询，结果通过SSE推送
     sseHandler.handleQuery(session_id, query);
     

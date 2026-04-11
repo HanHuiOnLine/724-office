@@ -22,8 +22,14 @@
       >
         <!-- 用户消息 -->
         <div v-if="message.role === 'user'" class="message user">
-          <div class="message-content">
+          <div class="message-content" :class="{ collapsed: isLongContent(message.content) && !isExpanded(message.id) }">
             {{ message.content }}
+          </div>
+          <div v-if="isLongContent(message.content)" class="expand-toggle" @click="toggleExpand(message.id)">
+            <el-icon>
+              <ArrowUp v-if="isExpanded(message.id)" />
+              <ArrowDown v-else />
+            </el-icon>
           </div>
         </div>
         
@@ -100,7 +106,7 @@
         <el-input
           v-model="inputMessage"
           type="textarea"
-          :rows="2"
+          :rows="4"
           placeholder="输入您的数据查询需求，例如：查一下上个月的销售额"
           resize="none"
           @keydown.enter.prevent="handleEnter"
@@ -137,7 +143,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 // 从Vue Router导入路由相关API
 import { useRoute } from 'vue-router'
 // 导入Element Plus图标
-import { ChatDotRound, UserFilled, Promotion, CopyDocument, Loading } from '@element-plus/icons-vue'
+import { ChatDotRound, UserFilled, Promotion, CopyDocument, Loading, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 // 导入Element Plus消息组件
 import { ElMessage } from 'element-plus'
 // 导入会话状态管理
@@ -153,6 +159,10 @@ import { renderMarkdown, renderSQL } from '../utils/markdownRenderer'
 const inputMessage = ref('')
 // 消息容器DOM引用，用于自动滚动
 const messagesContainer = ref(null)
+// 展开状态的消息ID集合
+const expandedMessages = ref(new Set())
+// 内容长度阈值（超过此长度显示折叠按钮）
+const COLLAPSE_THRESHOLD = 200
 
 // ============================================
 // 状态管理
@@ -214,6 +224,36 @@ function handleEnter(e) {
   }
   // 否则发送消息
   sendMessage()
+}
+
+/**
+ * 判断内容是否需要折叠显示
+ * @param {string} content - 消息内容
+ * @returns {boolean} 是否需要折叠
+ */
+function isLongContent(content) {
+  return content && content.length > COLLAPSE_THRESHOLD
+}
+
+/**
+ * 判断消息是否已展开
+ * @param {string} messageId - 消息ID
+ * @returns {boolean} 是否已展开
+ */
+function isExpanded(messageId) {
+  return expandedMessages.value.has(messageId)
+}
+
+/**
+ * 切换消息展开/折叠状态
+ * @param {string} messageId - 消息ID
+ */
+function toggleExpand(messageId) {
+  if (expandedMessages.value.has(messageId)) {
+    expandedMessages.value.delete(messageId)
+  } else {
+    expandedMessages.value.add(messageId)
+  }
 }
 
 /**
@@ -351,6 +391,7 @@ watch(isProcessing, (newVal) => {
   flex-direction: column;
   height: 100%;
   background-color: #ffffff;
+  position: relative;
 }
 
 /* 消息列表区域 */
@@ -358,7 +399,7 @@ watch(isProcessing, (newVal) => {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-bottom: 100px;
+  padding-bottom: 160px;
 }
 
 /* 欢迎消息 */
@@ -393,33 +434,75 @@ watch(isProcessing, (newVal) => {
 
 /* 消息气泡 */
 .message {
-  max-width: 80%;
+  max-width: 70%;
+}
+
+.message.user {
+  max-width: 70%;
 }
 
 .message.user .message-content {
   background-color: #409eff;
   color: white;
   padding: 12px 16px;
-  border-radius: 8px 8px 2px 8px;
+  border-radius: 12px 12px 2px 12px;
   word-break: break-word;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.message.user .message-content.collapsed {
+  max-height: 120px;
+  overflow: hidden;
+  position: relative;
+}
+
+.message.user .message-content.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(transparent, rgba(64, 158, 255, 0.9));
+}
+
+.expand-toggle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 4px;
+  padding: 4px;
+  cursor: pointer;
+  color: #409eff;
+  font-size: 14px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.expand-toggle:hover {
+  background-color: #ecf5ff;
 }
 
 .message.assistant {
   display: flex;
   align-items: flex-start;
+  max-width: 85%;
 }
 
 .message.assistant .avatar {
   margin-right: 12px;
   background-color: #409eff;
+  flex-shrink: 0;
 }
 
 .message-body {
   flex: 1;
   background-color: #f4f4f5;
   padding: 12px 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   border-top-left-radius: 2px;
+  min-width: 0;
 }
 
 .message-content {
@@ -664,6 +747,7 @@ watch(isProcessing, (newVal) => {
   padding: 20px;
   background-color: #ffffff;
   border-top: 1px solid #e4e7ed;
+  box-sizing: border-box;
 }
 
 .input-wrapper {

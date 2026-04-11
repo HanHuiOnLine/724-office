@@ -12,7 +12,23 @@
 - [router.py](file://router.py)
 - [mcp_client.py](file://mcp_client.py)
 - [self_check_tool.py](file://self_check_tool.py)
+- [sseHandler.js](file://NL2SQL/backend/src/core/sseHandler.js)
+- [routes.js](file://NL2SQL/backend/src/core/routes.js)
+- [app.js](file://NL2SQL/backend/src/app.js)
+- [session.js](file://NL2SQL/frontend/src/stores/session.js)
+- [api.js](file://NL2SQL/frontend/src/utils/api.js)
+- [nl2sqlEngine.js](file://NL2SQL/backend/src/core/nl2sqlEngine.js)
+- [database.js](file://NL2SQL/backend/src/core/database.js)
+- [config.js](file://NL2SQL/backend/src/core/config.js)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 移除了WebSocket相关的内容，因为系统已完全迁移到Server-Sent Events (SSE)
+- 新增了SSE实时通信机制的完整文档
+- 更新了NL2SQL后端的实时查询处理流程
+- 添加了前端Vue应用的SSE连接实现
+- 移除了ASR WebSocket配置和实现
 
 ## 目录
 1. [简介](#简介)
@@ -28,16 +44,16 @@
 
 ## 简介
 本文件为 724 Office 项目的 WebSocket API 完整技术文档，重点覆盖以下内容：
-- WebSocket 连接建立流程与认证机制
-- 实时语音识别（ASR）的 WebSocket 协议规范
-- 音频数据传输格式、消息序列与状态管理
+- Server-Sent Events (SSE) 实时通信机制
+- NL2SQL后端的实时查询处理流程
+- SSE连接建立、消息推送和状态管理
 - 连接参数、错误处理与重试策略
-- 在 ASR 场景中的应用与性能考量
+- 在NL2SQL场景中的应用与性能考量
 
-该项目以纯 Python 构建，不依赖框架，具备零配置依赖（仅使用标准库与少量小包），支持多租户路由、工具调用循环、内存系统、计划任务、MCP 插件桥接等能力。其中 WebSocket ASR 能力通过内置的音频转码与 WebSocket 客户端实现，用于将语音消息转换为文本。
+**重要更新**：系统现已完全迁移到Server-Sent Events (SSE) 实现实时通信，WebSocket功能已被移除。文档已相应更新以反映新的通信机制。
 
 ## 项目结构
-项目采用“模块化单文件”设计，核心入口为 xiaowang.py，负责 HTTP 服务、回调处理、ASR 流程与消息分发；llm.py 提供大模型调用与工具循环；tools.py 注册与执行各类工具；memory.py 提供三层记忆系统；scheduler.py 提供定时任务；router.py 提供多租户容器路由；mcp_client.py 提供 MCP 协议桥接；self_check_tool.py 文档化自检与自修复模式。
+项目采用"模块化单文件"设计，核心入口为 xiaowang.py，负责 HTTP 服务、回调处理、ASR 流程与消息分发；llm.py 提供大模型调用与工具循环；tools.py 注册与执行各类工具；memory.py 提供三层记忆系统；scheduler.py 提供定时任务；router.py 提供多租户路由；mcp_client.py 提供 MCP 协议桥接；self_check_tool.py 文档化自检与自修复模式。
 
 ```mermaid
 graph TB
@@ -52,12 +68,12 @@ MCP["mcp_client.py<br/>MCP桥接"]
 DOC["self_check_tool.py<br/>自检文档"]
 end
 subgraph "外部接口"
-WS["WebSocket ASR服务"]
+SSE["Server-Sent Events服务"]
 MSG["消息平台API"]
 LDB["LanceDB向量库"]
 FF["FFmpeg/解码器"]
 end
-XW --> WS
+XW --> SSE
 XW --> MSG
 XW --> LLM
 LLM --> TOOLS
@@ -84,16 +100,23 @@ XW --> FF
 - [xiaowang.py:133-285](file://xiaowang.py#L133-L285)
 
 ## 核心组件
-- WebSocket ASR 组件：位于 xiaowang.py 的 asr_recognize 函数，负责音频转码、签名认证、WebSocket 建连、音频帧发送与结果解析。
-- HTTP 回调与消息处理：xiaowang.py 接收消息平台回调，识别语音消息并触发 ASR。
-- 工具循环与会话管理：llm.py 提供工具循环、会话持久化与系统提示构建。
-- 记忆系统：memory.py 提供压缩、去重与检索三层记忆，支持零延迟硬件通道缓存。
-- 多租户路由：router.py 将不同用户路由到独立容器，支持自动编排与健康检查。
-- 计划任务：scheduler.py 提供一次性与周期性任务，支持心跳日志与失败通知。
-- MCP 桥接：mcp_client.py 提供 JSON-RPC over stdio/HTTP 的 MCP 客户端，支持热重载与自动重连。
-- 自检与自修复：self_check_tool.py 文档化每日自检、诊断与修复流程。
+- **SSE处理器**：位于 NL2SQL/backend/src/core/sseHandler.js，负责SSE连接管理、消息推送和进度回调。
+- **HTTP路由**：位于 NL2SQL/backend/src/core/routes.js，提供SSE连接端点和查询提交接口。
+- **NL2SQL引擎**：位于 NL2SQL/backend/src/core/nl2sqlEngine.js，处理自然语言到SQL的转换并支持SSE流式推送。
+- **前端SSE连接**：位于 NL2SQL/frontend/src/stores/session.js，管理Vue应用中的SSE连接和消息处理。
+- **HTTP回调与消息处理**：xiaowang.py 接收消息平台回调，识别语音消息并触发 ASR。
+- **工具循环与会话管理**：llm.py 提供工具循环、会话持久化与系统提示构建。
+- **记忆系统**：memory.py 提供压缩、去重与检索三层记忆，支持零延迟硬件通道缓存。
+- **多租户路由**：router.py 将不同用户路由到独立容器，支持自动编排与健康检查。
+- **计划任务**：scheduler.py 提供一次性与周期性任务，支持心跳日志与失败通知。
+- **MCP 桥接**：mcp_client.py 提供 JSON-RPC over stdio/HTTP 的 MCP 客户端，支持热重载与自动重连。
+- **自检与自修复**：self_check_tool.py 文档化每日自检、诊断与修复流程。
 
 **章节来源**
+- [sseHandler.js:1-349](file://NL2SQL/backend/src/core/sseHandler.js#L1-L349)
+- [routes.js:536-594](file://NL2SQL/backend/src/core/routes.js#L536-L594)
+- [nl2sqlEngine.js:815-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L815-L1012)
+- [session.js:182-293](file://NL2SQL/frontend/src/stores/session.js#L182-L293)
 - [xiaowang.py:133-285](file://xiaowang.py#L133-L285)
 - [llm.py:317-401](file://llm.py#L317-L401)
 - [memory.py:40-86](file://memory.py#L40-L86)
@@ -103,227 +126,248 @@ XW --> FF
 - [self_check_tool.py:1-57](file://self_check_tool.py#L1-L57)
 
 ## 架构总览
-WebSocket ASR 在整体架构中的位置如下：
+SSE实时通信在整体架构中的位置如下：
 
 ```mermaid
 sequenceDiagram
-participant MP as "消息平台"
-participant XW as "xiaowang.py(HTTP)"
-participant ASR as "WebSocket ASR服务"
-participant LLM as "llm.py"
-MP->>XW : "语音消息回调"
-XW->>XW : "下载/保存音频文件"
-XW->>XW : "音频转码(PCM)"
-XW->>ASR : "建立WS连接(带签名认证)"
-ASR-->>XW : "握手成功"
-XW->>ASR : "发送首帧(含业务参数)"
-XW->>ASR : "持续发送音频帧"
-ASR-->>XW : "中间结果(候选词)"
-ASR-->>XW : "结束帧(状态=2)"
-XW->>LLM : "将识别文本交给工具循环"
-LLM-->>XW : "回复(可含工具调用)"
-XW-->>MP : "发送回复消息"
+participant FE as "前端Vue应用"
+participant API as "后端API路由"
+participant SSE as "SSE处理器"
+participant NLP as "NL2SQL引擎"
+FE->>API : "GET /api/sse/stream?session_id=xxx"
+API->>SSE : "handleConnection()"
+SSE-->>FE : "连接成功消息"
+FE->>API : "POST /api/sse/query"
+API->>SSE : "handleQuery(session_id, query)"
+SSE->>NLP : "processQuery(query, session_id)"
+NLP-->>SSE : "processing阶段"
+SSE-->>FE : "processing消息"
+NLP-->>SSE : "progress阶段"
+SSE-->>FE : "progress消息"
+NLP-->>SSE : "result阶段"
+SSE-->>FE : "result消息"
+FE->>FE : "更新UI状态"
 ```
 
 **图表来源**
-- [xiaowang.py:140-285](file://xiaowang.py#L140-L285)
-- [llm.py:317-401](file://llm.py#L317-L401)
+- [routes.js:549-594](file://NL2SQL/backend/src/core/routes.js#L549-L594)
+- [sseHandler.js:43-280](file://NL2SQL/backend/src/core/sseHandler.js#L43-L280)
+- [nl2sqlEngine.js:825-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L825-L1012)
+- [session.js:185-293](file://NL2SQL/frontend/src/stores/session.js#L185-L293)
 
 ## 详细组件分析
 
-### WebSocket 连接与认证机制
-- 连接目标：从配置中读取 ws_url，默认为 wss://asr-api.example.com/v2/asr。
-- 认证参数：
-  - app_id：来自配置 asr.app_id
-  - api_key：来自配置 asr.api_key
-  - api_secret：来自配置 asr.api_secret
-- 时间戳：使用 UTC 时间生成 date 字段。
-- 签名算法：基于 HMAC-SHA256 对请求行与头部进行签名，再经 Base64 编码。
-- 认证头：将签名后的字符串进行 Base64 编码后作为 authorization 参数拼接到查询字符串。
-- 主机与路径：固定 host 为 asr-api.example.com，路径为 /v2/asr。
-- 连接方式：使用 websocket-client 库的 WebSocketApp，run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})。
+### Server-Sent Events (SSE) 连接与认证机制
+- **连接端点**：`/api/sse/stream`，支持查询参数 `session_id` 和 `user_id`。
+- **连接管理**：使用Map结构存储活跃连接，支持多标签页连接。
+- **认证参数**：
+  - `session_id`：必需参数，用于标识会话
+  - `user_id`：可选参数，默认为 `anonymous`
+- **连接状态**：维护连接时间、最后活跃时间、处理状态等信息。
+- **连接清理**：监听 `close` 和 `error` 事件，自动清理连接映射。
 
 ```mermaid
 flowchart TD
-Start(["开始: 读取ASR配置"]) --> CheckCfg{"配置是否完整?"}
-CheckCfg --> |否| Fail["返回None(禁用ASR)"]
-CheckCfg --> |是| Transcode["音频转码为PCM(16kHz, 单声道,L16)"]
-Transcode --> EmptyPCM{"PCM为空?"}
-EmptyPCM --> |是| Fail
-EmptyPCM --> |否| BuildSig["生成签名与认证参数"]
-BuildSig --> BuildURL["构造WS URL(查询串包含authorization,date,host)"]
-BuildURL --> Connect["建立WebSocket连接"]
-Connect --> OnOpen["on_open: 发送首帧(含business参数)"]
-OnOpen --> SendLoop["循环发送音频帧(8000字节/帧)"]
-SendLoop --> OnMsg["on_message: 解析中间/最终结果"]
-OnMsg --> Done{"收到结束帧(status=2)?"}
-Done --> |否| SendLoop
-Done --> |是| Close["关闭连接并返回识别文本"]
+Start(["开始: 建立SSE连接"]) --> CheckParam{"检查session_id参数"}
+CheckParam --> |缺失| BadReq["返回400错误"]
+CheckParam --> |存在| CheckSession["检查会话是否存在"]
+CheckSession --> |不存在| NotFound["返回404错误"]
+CheckSession --> |存在| SetHeader["设置SSE响应头"]
+SetHeader --> StoreConn["存储连接信息到Map"]
+StoreConn --> SendConnected["发送connected消息"]
+SendConnected --> ListenClose["监听close事件"]
+ListenClose --> ListenError["监听error事件"]
+ListenError --> Ready["连接就绪"]
 ```
 
 **图表来源**
-- [xiaowang.py:140-285](file://xiaowang.py#L140-L285)
+- [sseHandler.js:43-153](file://NL2SQL/backend/src/core/sseHandler.js#L43-L153)
 
 **章节来源**
-- [xiaowang.py:137-201](file://xiaowang.py#L137-L201)
-- [config.example.json:39-44](file://config.example.json#L39-L44)
+- [routes.js:549-551](file://NL2SQL/backend/src/core/routes.js#L549-L551)
+- [sseHandler.js:43-153](file://NL2SQL/backend/src/core/sseHandler.js#L43-L153)
 
-### 实时语音识别协议规范
-- 传输格式：音频编码为 audio/L16;rate=16000，原始数据（raw），每帧大小 8000 字节。
-- 帧状态：
-  - 首帧：status=0，携带 common.app_id 与 business 参数（语言、领域、口音、VAD 结束时间）。
-  - 连续帧：status=1，仅携带 data.audio。
-  - 结束帧：status=2，表示音频结束。
-- 数据结构要点：
-  - common：仅首帧存在，包含 app_id。
-  - business：仅首帧存在，包含语言、领域、口音、VAD 结束时间等。
-  - data：包含 status、format、encoding、audio（Base64）。
-- 结果解析：
-  - 服务器返回 JSON，包含 code、message、data.result.ws[].cw[].w。
-  - 当 code 非 0 时，视为错误；当 data.status=2 时，表示识别完成。
-- 超时控制：WebSocket 会话等待最多 30 秒，超时则关闭连接并返回 None。
+### 实时查询处理协议规范
+- **消息类型**：
+  - `connected`：连接成功消息
+  - `processing`：开始处理消息
+  - `progress`：进度更新消息
+  - `result`：查询结果消息
+  - `clarify`：需要澄清消息
+  - `error`：错误消息
+- **数据结构要点**：
+  - 每条消息包含 `type` 和 `data` 字段
+  - `processing` 和 `progress` 消息包含进度信息
+  - `result` 消息包含格式化后的回复、SQL语句和查询数据
+  - `clarify` 消息包含澄清问题和缺失信息
+- **前端处理**：Vue应用根据消息类型更新UI状态和显示内容。
+- **超时控制**：HTTP请求超时时间为30秒，SSE连接保持长连接。
 
 ```mermaid
 sequenceDiagram
-participant C as "客户端(xiaowang.py)"
-participant S as "ASR服务端"
-C->>S : "首帧 : common.app_id + business(语言/领域/口音/VAD)"
-loop "逐帧发送"
-C->>S : "连续帧 : data.status=1, data.audio(Base64)"
-end
-C->>S : "结束帧 : data.status=2"
-S-->>C : "中间结果 : data.status=0, result.ws[].cw[].w"
-S-->>C : "最终结果 : data.status=2, result.ws[].cw[].w"
-Note over C,S : "code!=0 表示错误"
+participant C as "客户端(Vue)"
+participant S as "SSE服务端"
+C->>S : "connected消息"
+C->>S : "processing消息"
+S-->>C : "progress消息(阶段1)"
+S-->>C : "progress消息(阶段2)"
+S-->>C : "progress消息(阶段3)"
+S-->>C : "result消息"
+Note over C,S : "支持多种消息类型"
 ```
 
 **图表来源**
-- [xiaowang.py:230-285](file://xiaowang.py#L230-L285)
+- [session.js:227-293](file://NL2SQL/frontend/src/stores/session.js#L227-L293)
+- [sseHandler.js:218-280](file://NL2SQL/backend/src/core/sseHandler.js#L218-L280)
 
 **章节来源**
-- [xiaowang.py:230-285](file://xiaowang.py#L230-L285)
+- [session.js:227-293](file://NL2SQL/frontend/src/stores/session.js#L227-L293)
+- [sseHandler.js:218-280](file://NL2SQL/backend/src/core/sseHandler.js#L218-L280)
 
-### 音频数据编码与转码
-- 输入音频类型检测：若文件头包含 "SILK"，使用 pilk 解码；否则使用 ffmpeg 将输入音频转码为 16kHz、单声道、L16 格式输出至 .pcm 文件。
-- 输出格式：audio/L16;rate=16000，raw 编码，Base64 后嵌入到 WebSocket 消息的 data.audio 字段。
-- 转码异常处理：转码失败或生成的 PCM 为空时，记录错误并返回 None。
+### NL2SQL引擎的SSE集成
+- **查询处理流程**：`processQuery` 函数支持进度回调，通过SSE推送实时状态。
+- **进度回调**：支持 `loading_history`、`analyzing`、`clarifying`、`generating`、`validating`、`executing`、`formatting` 等阶段。
+- **消息推送**：使用 `broadcastToSession` 函数向会话的所有连接推送消息。
+- **错误处理**：查询失败时通过SSE发送 `error` 消息。
+- **澄清机制**：需要更多信息时发送 `clarify` 消息，等待用户回复。
 
 **章节来源**
-- [xiaowang.py:140-176](file://xiaowang.py#L140-L176)
+- [nl2sqlEngine.js:825-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L825-L1012)
+- [sseHandler.js:218-280](file://NL2SQL/backend/src/core/sseHandler.js#L218-L280)
+
+### 前端Vue应用的SSE连接实现
+- **EventSource连接**：使用浏览器原生 `EventSource` API建立SSE连接。
+- **连接状态管理**：维护 `isConnected`、`isProcessing`、`processingStatus`、`processingProgress` 状态。
+- **消息处理**：根据消息类型更新UI状态，支持多种消息类型的处理。
+- **自动重连**：连接断开时自动重新连接，支持多标签页场景。
+- **进度显示**：实时显示查询进度和状态信息。
+
+**章节来源**
+- [session.js:182-293](file://NL2SQL/frontend/src/stores/session.js#L182-L293)
+- [api.js:246-251](file://NL2SQL/frontend/src/utils/api.js#L246-L251)
 
 ### 错误处理与重试策略
-- 连接错误：on_error 回调捕获 WebSocket 异常，设置 done_event 并记录错误。
-- 业务错误：on_message 中若 code 非 0，记录错误并设置 done_event。
-- 超时：WebSocket 会话等待最多 30 秒，超时后关闭连接。
-- 重试：当前实现未内置自动重试逻辑，建议上层调用方根据场景自行重试。
-- 日志：所有错误均通过日志记录，便于定位问题。
+- **连接错误**：`handleError` 函数记录错误并清理连接映射。
+- **业务错误**：查询处理失败时通过SSE发送 `error` 消息。
+- **超时处理**：HTTP请求超时30秒，SSE连接保持长连接。
+- **重试机制**：前端Vue应用支持自动重连，后端SSE处理器自动清理无效连接。
+- **日志记录**：所有错误均通过日志记录，便于定位问题。
 
 **章节来源**
-- [xiaowang.py:207-285](file://xiaowang.py#L207-L285)
+- [sseHandler.js:145-153](file://NL2SQL/backend/src/core/sseHandler.js#L145-L153)
+- [session.js:194-217](file://NL2SQL/frontend/src/stores/session.js#L194-L217)
 
-### 在 ASR 中的应用场景与集成
-- 语音消息处理：消息平台回调触发后，下载语音文件并保存，随后调用 asr_recognize 进行识别，识别结果回写到对话流。
-- 工具循环：识别文本进入 llm.chat，由工具循环决定是否调用外部工具或直接回复。
-- 多租户：router.py 将不同用户路由到独立容器，每个容器内运行独立的 xiaowang.py 实例，互不影响。
-- 计划任务：可调度每日自检、清理与维护任务，保障 ASR 服务稳定性。
+### 在NL2SQL中的应用场景与集成
+- **实时查询处理**：用户提交查询后，系统通过SSE实时推送处理进度和结果。
+- **多标签页支持**：SSE连接映射支持同一会话的多标签页连接。
+- **会话管理**：数据库模块提供会话的创建、查询和删除功能。
+- **消息持久化**：所有查询历史和消息通过SQLite数据库持久化存储。
+- **健康监控**：系统提供健康检查接口，监控SSE连接状态和系统性能。
 
 **章节来源**
-- [xiaowang.py:467-487](file://xiaowang.py#L467-L487)
-- [router.py:397-418](file://router.py#L397-L418)
-- [scheduler.py:166-186](file://scheduler.py#L166-L186)
+- [routes.js:264-396](file://NL2SQL/backend/src/core/routes.js#L264-L396)
+- [database.js:374-456](file://NL2SQL/backend/src/core/database.js#L374-L456)
+- [routes.js:98-135](file://NL2SQL/backend/src/core/routes.js#L98-L135)
 
 ## 依赖关系分析
-- 内部模块耦合：
-  - xiaowang.py 依赖 llm.py 进行工具循环与会话管理。
-  - xiaowang.py 依赖 tools.py 的工具定义与执行。
-  - memory.py 与 llm.py 协作，提供记忆注入与检索。
-  - router.py 与 xiaowang.py 协作，实现多租户路由。
-  - mcp_client.py 与 tools.py 协作，提供外部工具桥接。
-- 外部依赖：
-  - websocket-client：WebSocket 客户端库。
-  - lancedb：向量数据库，用于记忆检索。
-  - croniter：计划任务表达式解析。
-  - 其他：ffmpeg、pilk（可选，用于音频解码）。
+- **内部模块耦合**：
+  - `sseHandler.js` 依赖 `nl2sqlEngine.js` 进行查询处理。
+  - `routes.js` 依赖 `sseHandler.js` 处理SSE连接和查询。
+  - `session.js` 依赖 `api.js` 进行HTTP通信。
+  - `database.js` 提供会话和消息的持久化存储。
+  - `config.js` 提供全局配置管理。
+- **外部依赖**：
+  - `express`：Web服务器框架
+  - `cors`：跨域处理中间件
+  - `body-parser`：请求体解析中间件
+  - `sqlite3`：SQLite数据库驱动
+  - `axios`：HTTP客户端库
+  - `uuid`：UUID生成库
 
 ```mermaid
 graph LR
-XW["xiaowang.py"] --> LLM["llm.py"]
-XW --> TOOLS["tools.py"]
-LLM --> MEM["memory.py"]
-LLM --> SCH["scheduler.py"]
-ROUTER["router.py"] --> XW
-MCP["mcp_client.py"] --> TOOLS
-XW --> WS["websocket-client"]
-XW --> FF["ffmpeg/pilk"]
-MEM --> LDB["lancedb"]
+APP["app.js"] --> ROUTES["routes.js"]
+ROUTES --> SSE["sseHandler.js"]
+ROUTES --> DB["database.js"]
+SSE --> ENGINE["nl2sqlEngine.js"]
+FRONT["session.js"] --> API["api.js"]
+FRONT --> ROUTES
+CONFIG["config.js"] --> APP
 ```
 
 **图表来源**
-- [xiaowang.py:59-76](file://xiaowang.py#L59-L76)
-- [llm.py:17-39](file://llm.py#L17-L39)
-- [memory.py:58-84](file://memory.py#L58-L84)
-- [scheduler.py:30-43](file://scheduler.py#L30-L43)
-- [router.py:469-493](file://router.py#L469-L493)
-- [mcp_client.py:272-334](file://mcp_client.py#L272-L334)
+- [app.js:48-50](file://NL2SQL/backend/src/app.js#L48-L50)
+- [routes.js:26-27](file://NL2SQL/backend/src/core/routes.js#L26-L27)
+- [sseHandler.js:15-20](file://NL2SQL/backend/src/core/sseHandler.js#L15-L20)
+- [session.js:22](file://NL2SQL/frontend/src/stores/session.js#L22)
+- [api.js:15](file://NL2SQL/frontend/src/utils/api.js#L15)
 
 **章节来源**
-- [README.md:101-137](file://README.md#L101-L137)
+- [app.js:23-33](file://NL2SQL/backend/src/app.js#L23-L33)
+- [routes.js:16-27](file://NL2SQL/backend/src/core/routes.js#L16-L27)
+- [config.js:16](file://NL2SQL/backend/src/core/config.js#L16)
 
 ## 性能考虑
-- 帧大小与延迟：每帧 8000 字节，约 0.04 秒间隔，模拟实时流，降低端到端延迟。
-- 转码开销：SILK 使用 pilk 解码，其他格式使用 ffmpeg，建议在边缘设备上评估 CPU 占用。
-- 连接复用：同一会话内复用 WebSocket 连接，避免频繁握手。
-- 超时与并发：WebSocket 会话超时 30 秒，建议结合上层重试与并发控制。
-- 存储与网络：音频文件先落盘再转码，注意磁盘 IO 与网络下载带宽。
-
-[本节为通用性能讨论，无需具体文件分析]
+- **连接复用**：同一会话内的多标签页共享连接，减少连接开销。
+- **流式处理**：SSE支持流式消息推送，降低延迟。
+- **内存管理**：连接映射使用WeakMap避免内存泄漏。
+- **数据库优化**：SQLite数据库提供高效的查询和存储。
+- **前端优化**：Vue响应式系统只更新变化的部分。
+- **网络优化**：SSE连接保持长连接，避免频繁握手开销。
 
 ## 故障排除指南
-- ASR 未启用：确认配置中存在 asr 节点且字段完整。
-- 转码失败：检查输入音频格式与 ffmpeg/pilk 可用性；确认权限与临时目录空间。
-- WebSocket 连接失败：检查网络连通性、证书配置（sslopt）、代理设置。
-- 认证失败：核对 app_id、api_key、api_secret 是否正确；确认日期与时区。
-- 识别结果为空：确认音频质量与长度；检查 VAD 结束时间设置；尝试增大静音容忍。
-- 超时：延长等待时间或优化网络环境；检查服务端限流策略。
+- **SSE连接失败**：检查 `session_id` 参数是否正确传递。
+- **查询处理超时**：检查NL2SQL引擎的处理时间，可能需要调整超时设置。
+- **前端连接断开**：检查EventSource的自动重连机制是否正常工作。
+- **消息丢失**：确认SSE连接状态和消息推送逻辑。
+- **数据库连接问题**：检查SQLite数据库文件权限和路径配置。
+- **配置错误**：检查 `.env` 文件中的配置项是否正确设置。
 
 **章节来源**
-- [xiaowang.py:140-176](file://xiaowang.py#L140-L176)
-- [xiaowang.py:207-285](file://xiaowang.py#L207-L285)
-- [config.example.json:39-44](file://config.example.json#L39-L44)
+- [routes.js:564-594](file://NL2SQL/backend/src/core/routes.js#L564-L594)
+- [session.js:194-217](file://NL2SQL/frontend/src/stores/session.js#L194-L217)
+- [config.js:257-279](file://NL2SQL/backend/src/core/config.js#L257-L279)
 
 ## 结论
-724 Office 的 WebSocket ASR 能力通过简洁可靠的协议与严格的错误处理，实现了从语音消息到文本的高效转换。其设计遵循“零框架依赖”的原则，易于部署与维护。建议在生产环境中结合多租户路由、计划任务与自检机制，确保系统的高可用与可演进性。
-
-[本节为总结性内容，无需具体文件分析]
+724 Office 的 SSE 实时通信能力通过简洁可靠的协议与严格的错误处理，实现了从用户查询到结果的高效实时反馈。其设计遵循"零框架依赖"的原则，易于部署与维护。SSE相比WebSocket具有更好的浏览器兼容性和更低的复杂度，特别适合实时状态推送和流式数据传输场景。建议在生产环境中结合多租户路由、计划任务与自检机制，确保系统的高可用与可演进性。
 
 ## 附录
 
-### 配置项参考
-- asr.app_id：应用标识
-- asr.api_key：API 密钥
-- asr.api_secret：API 密钥（用于签名）
-- asr.ws_url：WebSocket 服务地址（默认 wss://asr-api.example.com/v2/asr）
+### SSE API端点参考
+- **GET `/api/sse/stream`**：建立SSE连接，查询参数 `session_id` 和 `user_id`
+- **POST `/api/sse/query`**：提交查询请求，请求体包含 `session_id` 和 `query`
 
 **章节来源**
-- [config.example.json:39-44](file://config.example.json#L39-L44)
+- [routes.js:549-594](file://NL2SQL/backend/src/core/routes.js#L549-L594)
+
+### 前端SSE连接配置
+- **EventSource URL**：`/api/sse/stream?session_id=${currentSessionId.value}`
+- **消息类型**：`connected`、`processing`、`progress`、`result`、`clarify`、`error`
+- **连接状态**：`isConnected`、`isProcessing`、`processingStatus`、`processingProgress`
+
+**章节来源**
+- [session.js:185-293](file://NL2SQL/frontend/src/stores/session.js#L185-L293)
 
 ### 关键流程图（类图）
 ```mermaid
 classDiagram
-class ASRClient {
-+asr_recognize(audio_path) string?
--transcode_to_pcm()
--build_auth_url()
--send_frames()
--parse_result()
+class SSEHandler {
++handleConnection(req, res)
++handleQuery(sessionId, query)
++sendMessage(conn, message)
++broadcastToSession(sessionId, message)
++getConnectionCount()
 }
-class WebSocketApp {
-+run_forever(sslopt)
-+send(json)
-+close()
+class NL2SQLEngine {
++processQuery(userQuery, sessionId, onProgress)
++analyzeIntent(userQuery, history)
++generateSQL(intent, history)
++executeQuery(sql)
++formatResult(result, originalQuery)
 }
-ASRClient --> WebSocketApp : "使用"
+SSEHandler --> NL2SQLEngine : "使用"
 ```
 
 **图表来源**
-- [xiaowang.py:140-285](file://xiaowang.py#L140-L285)
+- [sseHandler.js:43-280](file://NL2SQL/backend/src/core/sseHandler.js#L43-L280)
+- [nl2sqlEngine.js:825-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L825-L1012)

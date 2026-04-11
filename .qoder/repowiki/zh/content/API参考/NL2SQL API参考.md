@@ -12,7 +12,7 @@
 - [database.js](file://NL2SQL/backend/src/core/database.js)
 - [vectorStore.js](file://NL2SQL/backend/src/memory/vectorStore.js)
 - [logger.js](file://NL2SQL/backend/src/utils/logger.js)
-- [wsHandler.js](file://NL2SQL/backend/src/core/wsHandler.js)
+- [sseHandler.js](file://NL2SQL/backend/src/core/sseHandler.js)
 - [selfRepair.js](file://NL2SQL/backend/src/core/selfRepair.js)
 - [api.js](file://NL2SQL/frontend/src/utils/api.js)
 - [session.js](file://NL2SQL/frontend/src/stores/session.js)
@@ -23,9 +23,12 @@
 
 ## 更新摘要
 **变更内容**
-- 新增会话删除功能，包括后端deleteSession数据库函数和DELETE /api/sessions/:sessionId路由端点
-- 前端增加会话删除UI交互，包括确认对话框、删除图标、消息重新渲染优化
-- 完善会话状态管理，支持删除后的状态同步和清理
+- 重大架构变更：从WebSocket迁移到Server-Sent Events (SSE)
+- 新增SSE处理器模块，替代原有的WebSocket处理器
+- 更新API端点：新增/SSE/stream和/SSE/query端点
+- 前端连接方式：从WebSocket改为EventSource
+- 通信机制：单向流式消息传输，简化连接管理
+- 会话删除功能：新增会话删除API端点和前端交互
 
 ## 目录
 1. [简介](#简介)
@@ -46,7 +49,7 @@ NL2SQL API是一个基于自然语言到SQL转换技术的数据查询服务。�
 
 该系统采用现代化的技术栈，包括Node.js后端、Vue.js前端、SQLite数据库、LanceDB向量数据库，以及集成的LLM（大语言模型）服务。系统支持实时通信、会话管理、查询历史记录、Schema元数据管理等功能。
 
-**更新** 新增了实体解析和上下文分析功能，增强了系统的智能化水平，能够更好地理解用户意图和处理复杂的查询场景。同时新增了会话删除功能，提供完整的会话生命周期管理能力。
+**更新** 系统已从WebSocket架构迁移到Server-Sent Events (SSE)架构，提供更简洁的单向流式通信机制。新增了实体解析和上下文分析功能，增强了系统的智能化水平，能够更好地理解用户意图和处理复杂的查询场景。同时新增了会话删除功能，提供完整的会话生命周期管理能力。
 
 ## 项目结构
 
@@ -83,12 +86,12 @@ G --> A
 ```
 
 **图表来源**
-- [app.js:1-266](file://NL2SQL/backend/src/app.js#L1-L266)
+- [app.js:1-238](file://NL2SQL/backend/src/app.js#L1-L238)
 - [package.json:1-29](file://NL2SQL/backend/package.json#L1-L29)
 
 **章节来源**
 - [package.json:1-29](file://NL2SQL/backend/package.json#L1-L29)
-- [app.js:1-266](file://NL2SQL/backend/src/app.js#L1-L266)
+- [app.js:1-238](file://NL2SQL/backend/src/app.js#L1-L238)
 
 ## 核心组件
 
@@ -96,7 +99,7 @@ G --> A
 应用的主入口文件，负责：
 - 加载环境变量配置
 - 初始化核心模块
-- 启动HTTP和WebSocket服务器
+- 启动HTTP服务器和SSE服务
 - 处理优雅关闭
 
 ### 2. REST API路由 (Routes.js)
@@ -106,6 +109,7 @@ G --> A
 - 会话管理接口
 - 查询历史接口
 - 统计信息接口
+- **新增SSE接口**：/api/sse/stream和/api/sse/query
 
 ### 3. NL2SQL引擎 (nl2sqlEngine.js)
 核心转换引擎，实现：
@@ -129,24 +133,33 @@ LLM API通信模块：
 - 语义搜索和匹配
 - SQL验证功能
 
+### 6. SSE处理器 (sseHandler.js)
+**新增组件**：Server-Sent Events处理器，替代原有的WebSocket处理器：
+- SSE连接管理
+- 流式消息发送
+- 进度回调支持
+- 连接清理
+- 多连接支持（多标签页）
+
 **更新** 新增实体解析功能，支持将模糊描述（如"青木"）映射到具体ID（如"30"），并增强上下文分析能力，支持对话历史的理解和融合。
 
 **章节来源**
-- [app.js:121-190](file://NL2SQL/backend/src/app.js#L121-L190)
-- [routes.js:1-538](file://NL2SQL/backend/src/core/routes.js#L1-L538)
-- [nl2sqlEngine.js:1-800](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L800)
+- [app.js:97-166](file://NL2SQL/backend/src/app.js#L97-L166)
+- [routes.js:1-629](file://NL2SQL/backend/src/core/routes.js#L1-L629)
+- [nl2sqlEngine.js:1-1066](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1066)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
 - [schemaLoader.js:1-655](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L655)
+- [sseHandler.js:1-349](file://NL2SQL/backend/src/core/sseHandler.js#L1-L349)
 
 ## 架构概览
 
-NL2SQL系统采用微服务架构，主要组件交互如下：
+NL2SQL系统已从WebSocket架构迁移到Server-Sent Events (SSE)架构，主要组件交互如下：
 
 ```mermaid
 sequenceDiagram
 participant Client as 客户端应用
 participant API as REST API
-participant WS as WebSocket
+participant SSE as SSE处理器
 participant Engine as NL2SQL引擎
 participant Entity as 实体解析
 participant Context as 上下文分析
@@ -154,8 +167,8 @@ participant LLM as LLM服务
 participant Schema as Schema管理
 participant DB as 数据库
 Client->>API : HTTP请求
-API->>WS : WebSocket连接
-WS->>Engine : 处理查询
+API->>SSE : 建立SSE连接
+SSE->>Engine : 处理查询
 Engine->>Entity : 实体解析
 Entity-->>Engine : 解析结果
 Engine->>Context : 上下文分析
@@ -167,18 +180,25 @@ Engine->>LLM : SQL生成
 LLM-->>Engine : SQL语句
 Engine->>DB : 执行查询
 DB-->>Engine : 查询结果
-Engine-->>WS : 格式化结果
-WS-->>Client : 实时响应
+Engine-->>SSE : 格式化结果
+SSE-->>Client : 流式响应
+Client->>API : POST /api/sse/query
+API->>SSE : 处理查询请求
+SSE->>Engine : 执行查询
+Engine-->>SSE : 返回结果
+SSE-->>Client : 流式推送
 ```
 
 **图表来源**
-- [wsHandler.js:197-247](file://NL2SQL/backend/src/core/wsHandler.js#L197-L247)
-- [nl2sqlEngine.js:596-778](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L596-L778)
+- [sseHandler.js:43-112](file://NL2SQL/backend/src/core/sseHandler.js#L43-L112)
+- [routes.js:549-594](file://NL2SQL/backend/src/core/routes.js#L549-L594)
+- [nl2sqlEngine.js:587-778](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L587-L778)
 
-系统采用事件驱动架构，支持实时通信和异步处理。前端通过WebSocket与后端保持长连接，实现即时响应。
+系统采用事件驱动架构，支持实时通信和异步处理。前端通过EventSource与后端保持长连接，实现单向流式响应。
 
 **章节来源**
-- [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
+- [sseHandler.js:1-349](file://NL2SQL/backend/src/core/sseHandler.js#L1-L349)
+- [routes.js:538-594](file://NL2SQL/backend/src/core/routes.js#L538-L594)
 - [nl2sqlEngine.js:587-778](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L587-L778)
 
 ## 详细组件分析
@@ -230,36 +250,39 @@ NL2SQLEngine --> LLMService : 依赖
 - [nl2sqlEngine.js:302-410](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L302-L410)
 - [llmService.js:287-311](file://NL2SQL/backend/src/core/llmService.js#L287-L311)
 
-### WebSocket通信流程
+### SSE通信流程
 
 ```mermaid
 sequenceDiagram
 participant Client as 客户端
-participant WS as WebSocket服务器
+participant SSE as SSE服务器
 participant Handler as 连接处理器
 participant Engine as 查询引擎
 participant DB as 数据库
-Client->>WS : 建立连接
-WS->>Handler : handleConnection()
+Client->>SSE : GET /api/sse/stream?session_id=xxx
+SSE->>Handler : handleConnection()
 Handler->>DB : 创建/获取会话
 Handler->>Client : connected消息
-Client->>WS : query消息
-WS->>Handler : handleMessage()
-Handler->>Engine : processQuery()
+Client->>API : POST /api/sse/query
+API->>SSE : handleQuery()
+SSE->>Engine : processQuery()
 Engine->>Engine : 实体解析
 Engine->>Engine : 上下文分析
 Engine->>Engine : 分析意图
 Engine->>Engine : 生成SQL
 Engine->>DB : 执行查询
 DB-->>Engine : 返回结果
-Engine-->>Handler : 处理结果
-Handler->>Client : progress消息
-Handler->>Client : result消息
+Engine-->>SSE : 处理结果
+SSE-->>Client : 流式progress消息
+SSE-->>Client : 流式result消息
+Client->>SSE : 断开连接
+SSE->>Handler : handleClose()
 ```
 
 **图表来源**
-- [wsHandler.js:57-116](file://NL2SQL/backend/src/core/wsHandler.js#L57-L116)
-- [wsHandler.js:197-247](file://NL2SQL/backend/src/core/wsHandler.js#L197-L247)
+- [sseHandler.js:43-112](file://NL2SQL/backend/src/core/sseHandler.js#L43-L112)
+- [routes.js:549-594](file://NL2SQL/backend/src/core/routes.js#L549-L594)
+- [sseHandler.js:218-280](file://NL2SQL/backend/src/core/sseHandler.js#L218-L280)
 
 ### 数据库设计
 
@@ -314,8 +337,8 @@ SESSIONS ||--o{ QUERY_HISTORY : "产生"
 - [database.js:39-187](file://NL2SQL/backend/src/core/database.js#L39-L187)
 
 **章节来源**
-- [nl2sqlEngine.js:1-800](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L800)
-- [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
+- [nl2sqlEngine.js:1-1066](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1066)
+- [sseHandler.js:1-349](file://NL2SQL/backend/src/core/sseHandler.js#L1-L349)
 - [database.js:1-531](file://NL2SQL/backend/src/core/database.js#L1-L531)
 
 ## 实体解析与上下文分析
@@ -502,7 +525,7 @@ P --> Q[如果删除当前会话则跳转首页]
 graph TB
 subgraph "外部依赖"
 A[Express.js]
-B[WebSocket]
+B[EventSource]
 C[SQLite3]
 D[LanceDB]
 E[LLM API]
@@ -515,13 +538,12 @@ I[llmService.js]
 J[schemaLoader.js]
 K[database.js]
 L[vectorStore.js]
-M[wsHandler.js]
+M[sseHandler.js]
 N[实体解析模块]
 O[上下文分析模块]
 P[会话删除模块]
 end
 F --> A
-F --> B
 F --> G
 F --> M
 F --> K
@@ -570,9 +592,10 @@ G --> P
 - 向量数据库：支持强制重新向量化
 
 ### 2. 连接管理
-- WebSocket连接超时：90秒
+- SSE连接超时：90秒
 - 心跳检测：30秒间隔
 - 会话清理：7天过期时间
+- **多连接支持**：同一会话支持多个EventSource连接（多标签页）
 
 ### 3. 查询优化
 - SQL生成时自动添加LIMIT限制
@@ -595,7 +618,13 @@ G --> P
 - **索引优化**：确保messages表的session_id字段有索引，提高删除效率
 - **内存管理**：删除当前会话时及时清理内存中的消息缓存
 
-**更新** 新增实体解析和上下文分析的性能优化策略，包括数据库连接优先级、模拟数据回退机制等。新增会话删除功能的性能优化措施。
+### 7. SSE架构性能优化
+- **单向通信**：简化了连接管理复杂度
+- **流式传输**：支持实时进度反馈
+- **连接池管理**：支持同一会话的多连接
+- **自动清理**：连接断开时自动清理资源
+
+**更新** 新增实体解析和上下文分析的性能优化策略，包括数据库连接优先级、模拟数据回退机制等。新增会话删除功能的性能优化措施。新增SSE架构的性能优化策略，包括多连接支持和自动清理机制。
 
 ## 故障排除指南
 
@@ -615,7 +644,7 @@ G --> P
 - 确认SQLite文件权限
 - 验证数据库文件完整性
 
-#### 3. WebSocket连接超时
+#### 3. SSE连接超时
 **症状**：客户端连接后很快断开
 **解决方案**：
 - 检查防火墙设置
@@ -644,12 +673,20 @@ G --> P
 - 确认数据库事务是否正常提交
 - 检查messages表的外键约束设置
 
-**更新** 新增实体解析相关的故障排除指南和新增会话删除功能的故障排除指南。
+#### 7. SSE查询提交失败
+**症状**：POST /api/sse/query返回错误
+**解决方案**：
+- 检查session_id参数是否有效
+- 验证查询内容是否为空
+- 确认会话标题是否需要更新
+- 检查SSE处理器是否正常工作
+
+**更新** 新增实体解析相关的故障排除指南和新增会话删除功能的故障排除指南。新增SSE架构相关的故障排除指南。
 
 **章节来源**
 - [llmService.js:167-195](file://NL2SQL/backend/src/core/llmService.js#L167-L195)
 - [database.js:198-252](file://NL2SQL/backend/src/core/database.js#L198-L252)
-- [wsHandler.js:373-394](file://NL2SQL/backend/src/core/wsHandler.js#L373-L394)
+- [sseHandler.js:373-394](file://NL2SQL/backend/src/core/sseHandler.js#L373-L394)
 
 ## 结论
 
@@ -657,12 +694,13 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 
 ### 技术优势
 - **模块化设计**：清晰的分层架构，易于维护和扩展
-- **实时通信**：基于WebSocket的双向通信，提供良好的用户体验
+- **实时通信**：基于Server-Sent Events的单向流式通信，提供良好的用户体验
 - **智能处理**：集成LLM服务，支持复杂的自然语言理解
 - **向量化搜索**：利用LanceDB实现语义相似度匹配
 - **实体解析**：智能实体映射，支持模糊描述到具体ID的转换
 - **上下文分析**：深度理解对话历史，提供准确的查询意图
 - **完整的会话管理**：支持会话创建、查询、删除的完整生命周期
+- **SSE架构优势**：简化连接管理，支持多连接，提高系统稳定性
 
 ### 功能特性
 - 完整的RESTful API接口
@@ -672,6 +710,7 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 - 自修复机制和健康检查
 - 实体解析和上下文理解
 - **会话删除功能**：提供安全的会话清理能力
+- **SSE流式通信**：支持实时进度反馈和结果推送
 
 ### 扩展建议
 1. **性能优化**：考虑添加查询缓存机制
@@ -680,5 +719,6 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 4. **文档改进**：完善API文档和使用示例
 5. **实体扩展**：支持更多类型的实体解析
 6. **会话管理增强**：考虑添加会话归档和恢复功能
+7. **SSE优化**：考虑添加连接重连机制和心跳检测
 
-该系统为数据查询场景提供了强大的自然语言接口，能够有效降低数据分析的门槛，提高工作效率。新增的实体解析、上下文分析和会话删除功能进一步提升了系统的智能化水平和用户体验，使其能够更好地理解和处理复杂的查询场景，同时提供完整的会话生命周期管理能力。
+该系统为数据查询场景提供了强大的自然语言接口，能够有效降低数据分析的门槛，提高工作效率。新增的实体解析、上下文分析、会话删除功能和SSE架构进一步提升了系统的智能化水平和用户体验，使其能够更好地理解和处理复杂的查询场景，同时提供完整的会话生命周期管理能力和稳定的实时通信机制。

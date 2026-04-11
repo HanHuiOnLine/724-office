@@ -417,6 +417,19 @@ async function touchSession(sessionId) {
 }
 
 /**
+ * 更新会话标题
+ * @param {string} sessionId - 会话ID
+ * @param {string} title - 新标题
+ * @returns {Promise<boolean>} 是否更新成功
+ */
+async function updateSessionTitle(sessionId, title) {
+  const sql = 'UPDATE sessions SET title = ? WHERE id = ?';
+  const result = await run(sql, [title, sessionId]);
+  logger.debug(`更新会话标题: ${sessionId} -> ${title}`);
+  return result.changes > 0;
+}
+
+/**
  * 删除会话
  * @param {string} sessionId - 会话ID
  * @returns {Promise<boolean>} 是否删除成功
@@ -548,6 +561,7 @@ module.exports = {
   getSession,
   getUserSessions,
   touchSession,
+  updateSessionTitle,
   deleteSession,
   // 消息操作
   addMessage,
