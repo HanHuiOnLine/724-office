@@ -406,6 +406,16 @@ function inferPlatformByGameId(gameId) {
   return 'new';
 }
 
+function extractExplicitTableNames(query = '') {
+  if (!query || typeof query !== 'string') {
+    return [];
+  }
+
+  return schemaData.tables
+    .map(table => table.name)
+    .filter(tableName => query.includes(tableName));
+}
+
 /**
  * 搜索相关表（增强版：支持根据game_id和datasource智能匹配）
  * 根据查询文本和上下文信息，返回可能相关的表
@@ -419,6 +429,7 @@ function inferPlatformByGameId(gameId) {
  */
 async function searchRelevantTables(query, topK = 5, context = {}) {
   let enhancedQuery = query;
+  const explicitTableNames = extractExplicitTableNames(query);
   
   // 根据上下文增强查询文本
   if (context) {
@@ -449,11 +460,12 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
       const results = await vectorStore.searchSchema(queryEmbedding, topK * 2); // 搜索更多结果用于过滤
       
       // 提取表名并去重
-      let tableNames = [...new Set(
-        results
+      let tableNames = [...new Set([
+        ...explicitTableNames,
+        ...results
           .filter(r => r.metadata.type === 'table')
           .map(r => r.metadata.name)
-      )];
+      ])];
       
       // 如果有datasource上下文，优先匹配对应数据库的表
       if (context?.datasource) {
@@ -503,7 +515,7 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
   }
   
   // 回退：使用关键词匹配
-  return keywordMatchTables(enhancedQuery);
+  return keywordMatchTables(enhancedQuery, explicitTableNames);
 }
 
 /**
@@ -513,7 +525,7 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
  * @param {string} query - 查询文本
  * @returns {Array} 匹配的表列表
  */
-function keywordMatchTables(query) {
+function keywordMatchTables(query, explicitTableNames = []) {
   // 转换为小写进行不区分大小写的匹配
   const lowerQuery = query.toLowerCase();
   // 提取查询中的关键词（简单分词）
@@ -550,10 +562,17 @@ function keywordMatchTables(query) {
   }
   
   // 按分数降序排序并返回表定义
-  return matches
-    .sort((a, b) => b.score - a.score)
+  const orderedTableNames = [
+    ...explicitTableNames,
+    ...matches
+      .sort((a, b) => b.score - a.score)
+      .map(m => m.table.name)
+  ];
+
+  return [...new Set(orderedTableNames)]
     .slice(0, 5)
-    .map(m => m.table);
+    .map(name => getTable(name))
+    .filter(Boolean);
 }
 
 // ============================================
@@ -700,6 +719,71 @@ async function reload() {
   await load();
 }
 
+/**
+ * 获取业务关键词到表的映射
+ * 从表的描述、中文名和字段信息中构建关键词映射
+ * 
+ * @returns {Object} 业务关键词映射表 { keyword: [tableNames] }
+ */
+function getBusinessKeywordMappings() {
+  const mappings = {};
+  
+  // 预定义的业务关键词模式
+  const keywordPatterns = [
+    // 注册相关
+    { keywords: ['注册', '新增用户', '新用户', 'signup', 'register'], tables: [] },
+    // 登录相关
+    { keywords: ['登录', '登陆', '活跃', '在线', 'dau', 'login', 'active'], tables: [] },
+    // 充值/付费相关
+    { keywords: ['充值', '付费', '订单', '流水', '收入', '金额', 'payment', 'order', 'revenue'], tables: [] },
+    // 角色相关
+    { keywords: ['创角', '角色', '创建角色', 'role', 'character'], tables: [] },
+    // 聊天相关
+    { keywords: ['发言', '聊天', '消息', 'chat', 'message'], tables: [] }
+  ];
+  
+  // 为每个表分析其描述和字段，归类到关键词
+  for (const table of schemaData.tables) {
+    const searchText = `
+      ${table.name} 
+      ${table.name_cn || ''} 
+      ${table.description || ''}
+      ${table.fields.map(f => `${f.name_cn || ''} ${f.description || ''}`).join(' ')}
+    `.toLowerCase();
+    
+    for (const pattern of keywordPatterns) {
+      for (const keyword of pattern.keywords) {
+        if (searchText.includes(keyword.toLowerCase())) {
+          if (!mappings[keyword]) {
+            mappings[keyword] = [];
+          }
+          if (!mappings[keyword].includes(table.name)) {
+            mappings[keyword].push(table.name);
+          }
+          // 同时添加到同义词
+          for (const syn of pattern.keywords) {
+            if (syn !== keyword) {
+              if (!mappings[syn]) {
+                mappings[syn] = [];
+              }
+              if (!mappings[syn].includes(table.name)) {
+                mappings[syn].push(table.name);
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+  
+  logger.debug('[SchemaLoader] 业务关键词映射构建完成', {
+    keywordCount: Object.keys(mappings).length
+  });
+  
+  return mappings;
+}
+
 // ============================================
 // 导出模块
 // ============================================
@@ -726,6 +810,8 @@ module.exports = {
   // Schema摘要
   getSchemaSummary,
   getTableSchemaDetail,
+  // 业务关键词映射
+  getBusinessKeywordMappings,
   // 缓存检查
   isCacheExpired
 };

@@ -222,6 +222,18 @@ function sleep(ms) {
 async function chat(messages, tools = null, stream = false, onStream = null) {
   // 记录开始调用日志
   logger.debug('调用LLM chat API', { messageCount: messages.length, stream });
+  logger.trace('LLM chat请求详情', {
+    model: config.llm.model,
+    messageCount: messages.length,
+    messages: messages.map(m => ({
+      role: m.role,
+      content: m.content?.substring(0, 200) + (m.content?.length > 200 ? '...' : '')
+    })),
+    tools: tools?.map(t => t.function?.name),
+    stream,
+    max_tokens: 4096,
+    temperature: 0.1
+  });
   
   // 构造请求体
   const body = {
@@ -266,6 +278,16 @@ async function chat(messages, tools = null, stream = false, onStream = null) {
       const duration = Date.now() - startTime;
       logger.debug(`LLM请求完成，耗时: ${duration}ms`);
       
+      // 记录响应详情
+      const responseContent = response.choices?.[0]?.message?.content;
+      logger.trace('LLM chat响应详情', {
+        duration: `${duration}ms`,
+        responseLength: responseContent?.length || 0,
+        response: responseContent?.substring(0, 300) + (responseContent?.length > 300 ? '...' : ''),
+        usage: response.usage,
+        finishReason: response.choices?.[0]?.finish_reason
+      });
+      
       // 返回响应结果
       return response;
     } catch (error) {
@@ -285,6 +307,13 @@ async function chat(messages, tools = null, stream = false, onStream = null) {
  * @returns {Promise<string>} LLM生成的文本内容
  */
 async function simpleChat(prompt, systemPrompt = null) {
+  logger.trace('simpleChat调用', {
+    hasSystemPrompt: !!systemPrompt,
+    systemPromptLength: systemPrompt?.length || 0,
+    promptLength: prompt?.length || 0,
+    prompt: prompt?.substring(0, 100) + (prompt?.length > 100 ? '...' : '')
+  });
+  
   // 构造消息数组
   const messages = [];
   
@@ -307,7 +336,14 @@ async function simpleChat(prompt, systemPrompt = null) {
   
   // 提取并返回生成的内容
   // OpenAI格式响应：choices[0].message.content
-  return response.choices?.[0]?.message?.content || '';
+  const content = response.choices?.[0]?.message?.content || '';
+  
+  logger.trace('simpleChat结果', {
+    contentLength: content.length,
+    content: content?.substring(0, 200) + (content?.length > 200 ? '...' : '')
+  });
+  
+  return content;
 }
 
 // ============================================

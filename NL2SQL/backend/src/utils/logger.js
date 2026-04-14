@@ -6,6 +6,7 @@
  * 2. 文件输出（自动轮转）
  * 3. 多级别日志（debug, info, warn, error）
  * 4. 结构化日志格式
+ * 5. 执行流程追踪（trace）- 用于调试NL2SQL流程
  */
 
 // ============================================
@@ -30,14 +31,16 @@ const config = require('../core/config');
  * 定义支持的日志级别及其优先级
  */
 const LogLevel = {
-  // 调试级别，最详细，用于开发调试
-  DEBUG: { value: 0, label: 'DEBUG', color: '\x1b[36m' }, // 青色
+  // 追踪级别，用于详细流程追踪（最详细）
+  TRACE: { value: 0, label: 'TRACE', color: '\x1b[90m' }, // 灰色
+  // 调试级别，用于开发调试
+  DEBUG: { value: 1, label: 'DEBUG', color: '\x1b[36m' }, // 青色
   // 信息级别，记录一般信息
-  INFO: { value: 1, label: 'INFO', color: '\x1b[32m' },  // 绿色
+  INFO: { value: 2, label: 'INFO', color: '\x1b[32m' },  // 绿色
   // 警告级别，记录可能的问题
-  WARN: { value: 2, label: 'WARN', color: '\x1b[33m' },  // 黄色
+  WARN: { value: 3, label: 'WARN', color: '\x1b[33m' },  // 黄色
   // 错误级别，记录错误信息
-  ERROR: { value: 3, label: 'ERROR', color: '\x1b[31m' } // 红色
+  ERROR: { value: 4, label: 'ERROR', color: '\x1b[31m' } // 红色
 };
 
 // ============================================
@@ -71,6 +74,9 @@ class Logger extends EventEmitter {
     this.maxSize = config.log.maxSize;
     // 最大保留文件数
     this.maxFiles = config.log.maxFiles;
+    
+    // 追踪上下文：用于关联同一请求的多条日志
+    this.traceContext = new Map();
     
     // 初始化：确保日志目录存在
     this.ensureLogDirectory();
@@ -249,6 +255,16 @@ class Logger extends EventEmitter {
   // ----------------------------------------
 
   /**
+   * 记录追踪级别日志
+   * 用于详细流程追踪，比debug更详细
+   * @param {string} message - 日志消息
+   * @param {Object} meta - 附加元数据
+   */
+  trace(message, meta) {
+    this.log(LogLevel.TRACE, message, meta);
+  }
+
+  /**
    * 记录调试级别日志
    * @param {string} message - 日志消息
    * @param {Object} meta - 附加元数据
@@ -290,6 +306,114 @@ class Logger extends EventEmitter {
       };
     }
     this.log(LogLevel.ERROR, message, meta);
+  }
+
+  // ============================================
+  // 执行流程追踪方法（用于NL2SQL调试）
+  // ============================================
+
+  /**
+   * 开始一个追踪会话
+   * @param {string} traceId - 追踪ID（如sessionId）
+   * @param {string} operation - 操作名称
+   * @param {Object} context - 初始上下文数据
+   * @returns {Object} 追踪会话对象
+   */
+  startTrace(traceId, operation, context = {}) {
+    const traceSession = {
+      traceId,
+      operation,
+      startTime: Date.now(),
+      steps: [],
+      context: { ...context }
+    };
+    this.traceContext.set(traceId, traceSession);
+    
+    this.trace(`[${traceId}] 开始追踪: ${operation}`, {
+      traceId,
+      operation,
+      context
+    });
+    
+    return traceSession;
+  }
+
+  /**
+   * 记录追踪步骤
+   * @param {string} traceId - 追踪ID
+   * @param {string} step - 步骤名称
+   * @param {Object} data - 步骤数据
+   * @param {string} status - 步骤状态 (start|success|error)
+   */
+  traceStep(traceId, step, data = {}, status = 'start') {
+    const session = this.traceContext.get(traceId);
+    const timestamp = Date.now();
+    const stepData = {
+      step,
+      status,
+      timestamp,
+      elapsed: session ? timestamp - session.startTime : 0,
+      data
+    };
+    
+    if (session) {
+      session.steps.push(stepData);
+    }
+    
+    // 根据状态选择日志级别
+    const level = status === 'error' ? LogLevel.ERROR : 
+                  status === 'success' ? LogLevel.DEBUG : LogLevel.TRACE;
+    
+    this.log(level, `[${traceId}] [${step}] ${status.toUpperCase()}`, {
+      traceId,
+      step,
+      status,
+      elapsed: stepData.elapsed,
+      ...data
+    });
+  }
+
+  /**
+   * 结束追踪会话
+   * @param {string} traceId - 追踪ID
+   * @param {Object} result - 最终结果
+   * @returns {Object} 完整的追踪记录
+   */
+  endTrace(traceId, result = {}) {
+    const session = this.traceContext.get(traceId);
+    if (!session) return null;
+    
+    const endTime = Date.now();
+    const totalTime = endTime - session.startTime;
+    
+    const traceRecord = {
+      ...session,
+      endTime,
+      totalTime,
+      result,
+      stepCount: session.steps.length
+    };
+    
+    this.trace(`[${traceId}] 结束追踪`, {
+      traceId,
+      operation: session.operation,
+      totalTime: `${totalTime}ms`,
+      stepCount: session.steps.length
+    });
+    
+    // 清理追踪上下文
+    this.traceContext.delete(traceId);
+    
+    return traceRecord;
+  }
+
+  /**
+   * 获取追踪会话
+   * @param {string} traceId - 追踪ID
+   * @returns {Object|null} 追踪会话对象
+   */
+  getTrace(traceId) {
+    return this.traceContext.get(traceId) || null;
   }
 
   /**

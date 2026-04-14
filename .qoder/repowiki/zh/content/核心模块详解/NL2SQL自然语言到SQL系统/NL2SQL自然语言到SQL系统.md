@@ -22,16 +22,17 @@
 - [MemoryView.vue](file://NL2SQL/frontend/src/views/MemoryView.vue)
 - [package.json](file://NL2SQL/backend/package.json)
 - [package.json](file://NL2SQL/frontend/package.json)
+- [context-management.test.js](file://NL2SQL/backend/test/context-management.test.js)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增长期记忆功能，支持用户偏好和查询模式的智能存储与管理
-- 增强的实体解析系统，集成长期记忆进行智能别名学习
-- 改进的上下文分析能力，支持LLM驱动的意图更新机制
-- 完善的Markdown渲染系统，提供丰富的前端展示功能
-- 新增记忆维护模块，实现智能清理和相似模式合并
-- 前端新增记忆管理视图，提供用户偏好可视化界面
+- 新增平台术语解析系统(resolvePlatformInIntent)，支持"新平台"/"老平台"识别
+- 澄清上下文增强(enrichIntentWithClarificationContext)，改进多轮对话理解
+- 意图完整性检查改进(checkIntentComplete)，更严格的验证机制
+- SQL生成增强(generateSQL)，支持平台上下文的智能SQL生成
+- Schema加载器增强(searchRelevantTables)，支持平台和数据源上下文匹配
+- 澄清轮即时学习(extractMappingsFromText)，增强业务术语学习能力
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -61,6 +62,8 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **长期记忆**：智能学习用户偏好和查询模式
 - **记忆维护**：自动清理和相似模式合并
 - **偏好管理**：完整的用户偏好可视化界面
+- **平台识别**：智能识别"新平台"/"老平台"等平台术语
+- **多轮对话**：增强的澄清机制和上下文理解
 
 ## 项目结构
 
@@ -89,6 +92,8 @@ BE8[实体解析系统]
 BE9[长期记忆模块]
 BE10[记忆维护模块]
 BE11[向量存储模块]
+BE12[平台术语解析]
+BE13[澄清上下文增强]
 end
 subgraph "数据存储"
 DS1[SQLite数据库]
@@ -112,6 +117,8 @@ BE8 --> BE2
 BE9 --> BE2
 BE10 --> BE9
 BE11 --> BE2
+BE12 --> BE2
+BE13 --> BE2
 BE4 --> DS3
 BE5 --> DS1
 BE4 --> DS2
@@ -136,13 +143,13 @@ BE4 --> DS2
 系统的核心由以下关键组件构成：
 
 #### 1. NL2SQL引擎
-负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**长期记忆集成和增强的实体解析系统。
+负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**平台术语解析系统和增强的实体解析系统。
 
 #### 2. LLM服务
 封装与大型语言模型的交互，提供聊天、嵌入向量获取和重试机制。
 
 #### 3. Schema加载器
-管理数据库Schema元数据，提供Schema查询、匹配和验证功能。
+管理数据库Schema元数据，提供Schema查询、匹配和验证功能。**增强**支持平台和数据源上下文的智能匹配。
 
 #### 4. 向量存储模块
 基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。
@@ -157,15 +164,21 @@ BE4 --> DS2
 **新增**支持模糊描述到具体ID的智能映射，如将"青木"映射到游戏ID。
 
 #### 8. 长期记忆模块
-**新增**用户长期记忆管理，包括偏好提取、存储、检索和维护功能。
+**新增**用户长期记忆管理，包括偏好提取、存储、检索和维护功能。**新增**澄清轮即时学习能力。
 
 #### 9. 记忆维护模块
 **新增**实现长期记忆的自动清理、相似模式合并和统计报告。
 
+#### 10. 平台术语解析系统
+**新增**专门处理"新平台"/"老平台"等平台术语识别，支持数据源映射学习。
+
+#### 11. 澄清上下文增强
+**新增**改进的多轮对话上下文理解，支持默认选项确认和澄清历史整合。
+
 **章节来源**
-- [nl2sqlEngine.js:1-1597](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1597)
+- [nl2sqlEngine.js:1-2010](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2010)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
-- [schemaLoader.js:1-655](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L655)
+- [schemaLoader.js:1-751](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L751)
 - [vectorStore.js:1-442](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L442)
 - [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
 - [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
@@ -221,6 +234,10 @@ ENDPOINT[实体解析端点]
 LT_ENDPOINT[长期记忆端点]
 ENDPOINT2[记忆维护端点]
 ENDPOINT3[向量存储端点]
+PT_ENDPOINT[平台术语解析端点]
+ENHANCE_ENDPOINT[澄清上下文增强端点]
+ENDPOINT4[SQL生成增强端点]
+ENDPOINT5[Schema加载器增强端点]
 end
 subgraph "服务层"
 LLM[LLM服务]
@@ -228,6 +245,10 @@ SCHEMA[Schema服务]
 VECTOR[向量服务]
 ENTITIES[实体服务]
 MEMORY[记忆服务]
+PLATFORM[平台识别服务]
+CONTEXT[上下文理解服务]
+SQLGEN[SQL生成服务]
+SCHEMA_ENH[Schema增强服务]
 end
 subgraph "数据层"
 SQLITE[SQLite数据库]
@@ -245,12 +266,20 @@ ENGINE --> SCHEMA
 ENGINE --> VECTOR
 ENGINE --> ENTITIES
 ENGINE --> MEMORY
+ENGINE --> PLATFORM
+ENGINE --> CONTEXT
+ENGINE --> SQLGEN
+ENGINE --> SCHEMA_ENH
 SCHEMA --> METADATA
 ENGINE --> SQLITE
 ENGINE --> LANCEDB
 ENTITIES --> SQLITE
 MEMORY --> SQLITE
 MEMORY --> LANCEDB
+PLATFORM --> MEMORY
+CONTEXT --> ENGINE
+SQLGEN --> SCHEMA
+SCHEMA_ENH --> SCHEMA
 ```
 
 **图表来源**
@@ -266,7 +295,8 @@ sequenceDiagram
 participant Client as 客户端
 participant WS as WebSocket服务器
 participant Engine as NL2SQL引擎
-participant Entity as 实体解析系统
+participant Platform as 平台术语解析
+participant Context as 澄清上下文增强
 participant Memory as 长期记忆模块
 participant LLM as LLM服务
 participant Schema as Schema加载器
@@ -274,15 +304,17 @@ participant DB as 数据库
 Client->>WS : 发送查询请求
 WS->>Engine : 处理查询
 Engine->>Engine : 意图识别(融合上下文)
+Engine->>Platform : 解析平台术语
+Platform->>Memory : 学习平台映射
+Memory-->>Platform : 返回学习结果
+Platform-->>Engine : 平台信息
+Engine->>Context : 增强澄清上下文
+Context-->>Engine : 上下文增强结果
 Engine->>LLM : 分析用户意图
 LLM-->>Engine : 意图分析结果
-Engine->>Entity : 解析实体ID
-Entity->>Memory : 学习字段别名
-Memory-->>Entity : 返回学习结果
-Entity-->>Engine : 实体映射结果
-Engine->>Schema : 搜索相关表
-Schema-->>Engine : 表结构信息
-Engine->>LLM : 生成SQL
+Engine->>Schema : 搜索相关表(含平台上下文)
+Schema-->>Engine : 表结构信息(智能匹配)
+Engine->>LLM : 生成SQL(含平台信息)
 LLM-->>Engine : SQL语句
 Engine->>Engine : SQL验证
 Engine->>DB : 执行查询
@@ -306,79 +338,117 @@ WS-->>Client : 发送响应
 
 NL2SQL引擎是系统的核心，实现了完整的自然语言到SQL转换流程：
 
-#### 长期记忆集成
+#### 平台术语解析系统
 
-**新增**长期记忆模块深度集成到NL2SQL引擎中：
+**新增**resolvePlatformInIntent函数实现了智能的平台术语识别：
 
 ```mermaid
 flowchart TD
-Start([开始查询处理]) --> CheckMemory{长期记忆启用?}
-CheckMemory --> |否| NormalProcess[正常处理流程]
-CheckMemory --> |是| ExtractPref[提取用户偏好]
-ExtractPref --> AnalyzeLLM{LLM智能分析?}
-AnalyzeLLM --> |是| LLMParse[LLM解析查询价值]
-AnalyzeLLM --> |否| LogicJudge[逻辑判断筛选]
-LLMParse --> FilterPref[过滤有效偏好]
-LogicJudge --> FilterPref
-FilterPref --> StorePref[存储用户偏好]
-StorePref --> AsyncLearn[异步学习实体别名]
-AsyncLearn --> NormalProcess
-NormalProcess --> End([结束])
+Start([开始平台解析]) --> CheckMemory{长期记忆启用?}
+CheckMemory --> |是| LoadPrefs[加载用户平台映射]
+LoadPrefs --> CheckQuery{查询中包含平台术语?}
+CheckMemory --> |否| CheckQuery
+LoadPrefs --> CheckQuery
+CheckQuery --> |是| MatchTerm[匹配平台术语]
+CheckQuery --> |否| Fallback[硬编码兜底]
+MatchTerm --> CheckFilter{已有datasource过滤?}
+CheckFilter --> |是| End([结束])
+CheckFilter --> |否| AddFilter[添加datasource过滤]
+AddFilter --> End
+Fallback --> CheckFallback{硬编码匹配?}
+CheckFallback --> |是| AddFallback[添加硬编码过滤]
+CheckFallback --> |否| End
+AddFallback --> End
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:1484-1517](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1484-L1517)
-- [longTermMemory.js:311-484](file://NL2SQL/backend/src/memory/longTermMemory.js#L311-L484)
+- [nl2sqlEngine.js:309-383](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L309-L383)
+- [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
 
-#### 增强的实体解析系统
+#### 澄清上下文增强
 
-**更新**实体解析系统集成长期记忆功能：
-
-1. **智能别名学习**：在澄清轮中自动学习用户提供的映射关系
-2. **直接值映射**：对于game_id和channel_id直接存储ID值
-3. **字段类型识别**：自动识别实体类型（game、channel、datasource）
-4. **冲突检测**：避免重复学习和映射冲突
-
-**章节来源**
-- [nl2sqlEngine.js:118-182](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L118-L182)
-- [longTermMemory.js:827-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L827-L965)
-
-#### 智能LLM意图更新
-
-**新增**updateIntentWithLLM函数实现更自然的对话体验：
+**更新**enrichIntentWithClarificationContext函数改进了多轮对话理解：
 
 ```mermaid
 stateDiagram-v2
-[*] --> 检查上下文查询
-检查上下文查询 --> 是上下文查询? : intent.isContextualQuery
-是上下文查询? --> |是| 使用LLM更新
-是上下文查询? --> |否| 手动合并
-使用LLM更新 --> 生成更新提示词
-生成更新提示词 --> 调用LLM
-调用LLM --> 解析响应
-解析响应 --> 返回更新意图
-手动合并 --> 合并意图
-合并意图 --> 返回合并结果
-返回更新意图 --> [*]
-返回合并结果 --> [*]
+[*] --> 检查澄清历史
+检查澄清历史 --> 有澄清消息? : lastAssistantMsg.type === 'clarify'
+有澄清消息? --> |否| 返回原意图
+有澄清消息? --> |是| 分析用户回复
+分析用户回复 --> 是否确认默认? : isAffirmativeReply
+是否确认默认? --> |是| 提取默认选项
+是否确认默认? --> |否| 处理补充回答
+提取默认选项 --> 构建上下文
+处理补充回答 --> 构建上下文
+构建上下文 --> 添加澄清信息
+添加澄清信息 --> 设置确认槽位
+设置确认槽位 --> 返回增强意图
+返回增强意图 --> [*]
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:630-694](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L630-L694)
+- [nl2sqlEngine.js:443-482](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L443-L482)
 
-#### SQL生成策略
+#### 意图完整性检查改进
 
-引擎采用多层次的SQL生成策略：
+**更新**checkIntentComplete函数实现了更严格的完整性验证：
 
-1. **Schema感知生成**：基于实际数据库结构生成SQL
-2. **语义匹配**：使用向量搜索找到相关表
-3. **安全验证**：多重安全检查防止恶意查询
-4. **结果优化**：自动添加LIMIT限制和CTE结构
-5. **上下文整合**：融合历史对话中的澄清信息
+```mermaid
+flowchart TD
+Start([开始完整性检查]) --> CheckRequired{检查必需字段}
+CheckRequired --> CheckConfidence{检查置信度}
+CheckConfidence --> CheckPending{检查待确认项}
+CheckPending --> HasMissing{有缺失字段?}
+HasMissing --> |是| ReturnMissing[返回缺失列表]
+HasMissing --> |否| ReturnComplete[返回完整]
+CheckRequired --> CheckPending
+CheckConfidence --> CheckPending
+```
+
+**图表来源**
+- [nl2sqlEngine.js:922-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L922-L1012)
+
+#### SQL生成增强
+
+**更新**generateSQL函数支持平台上下文的智能SQL生成：
+
+```mermaid
+flowchart TD
+Start([开始SQL生成]) --> ExtractContext[提取上下文信息]
+ExtractContext --> SearchTables[搜索相关表(含平台上下文)]
+SearchTables --> BuildPrompt[构建SQL生成提示词]
+BuildPrompt --> GenerateSQL[生成SQL]
+GenerateSQL --> ValidateSQL[验证SQL安全性]
+ValidateSQL --> ReturnResult[返回结果]
+```
+
+**图表来源**
+- [nl2sqlEngine.js:1090-1288](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1090-L1288)
+
+#### 澄清轮即时学习
+
+**新增**extractMappingsFromText函数实现了澄清轮中的智能学习：
+
+```mermaid
+flowchart TD
+Start([开始映射提取]) --> CheckText{文本长度>=10?}
+CheckText --> |否| ReturnEmpty[返回空结果]
+CheckText --> |是| ExtractGameTable[提取游戏ID表格]
+ExtractGameTable --> ExtractPlatform[提取平台映射]
+ExtractPlatform --> ExtractExplicit[提取显式映射]
+ExtractExplicit --> LearnMappings[学习映射关系]
+LearnMappings --> ReturnResult[返回学习结果]
+```
+
+**图表来源**
+- [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
 
 **章节来源**
-- [nl2sqlEngine.js:490-639](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L490-L639)
-- [nl2sqlEngine.js:516-527](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L516-L527)
+- [nl2sqlEngine.js:309-383](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L309-L383)
+- [nl2sqlEngine.js:443-482](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L443-L482)
+- [nl2sqlEngine.js:922-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L922-L1012)
+- [nl2sqlEngine.js:1090-1288](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1090-L1288)
+- [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
 
 ### 长期记忆模块分析
 
@@ -523,7 +593,7 @@ LLM服务支持多种嵌入向量生成模式：
 
 ### Schema加载器设计
 
-Schema加载器负责管理数据库元数据：
+**更新**Schema加载器负责管理数据库元数据，现已支持平台和数据源上下文：
 
 #### 数据结构管理
 
@@ -537,7 +607,7 @@ class SchemaLoader {
 +getAllTables() Array
 +getTable(tableName) Object
 +getField(tableName, fieldName) Object
-+searchRelevantTables(query, topK) Promise~Array~
++searchRelevantTables(query, topK, context) Promise~Array~
 +validateSQL(sql) Object
 +getSchemaSummary() string
 +getTableSchemaDetail(tableNames) string
@@ -556,25 +626,36 @@ class Vectorization {
 +addSchemaVectors(texts, vectors, metadataList) Promise~void~
 +searchSchema(queryVector, topK) Promise~Array~
 }
+class PlatformContext {
++gameId : string
++datasource : string
++inferPlatformByGameId(gameId) string
++extractExplicitTableNames(query) Array
+}
 SchemaLoader --> SchemaData : "管理"
 SchemaLoader --> Vectorization : "使用"
+SchemaLoader --> PlatformContext : "使用"
 ```
 
 **图表来源**
 - [schemaLoader.js:36-51](file://NL2SQL/backend/src/core/schemaLoader.js#L36-L51)
 - [schemaLoader.js:195-290](file://NL2SQL/backend/src/core/schemaLoader.js#L195-L290)
+- [schemaLoader.js:390-407](file://NL2SQL/backend/src/core/schemaLoader.js#L390-L407)
 
 #### 语义搜索功能
 
-Schema加载器实现了智能的语义搜索：
+**更新**Schema加载器实现了智能的语义搜索，支持平台上下文：
 
 1. **向量搜索**：使用LanceDB进行高效的向量相似度搜索
 2. **关键词匹配**：作为向量搜索的后备方案
-3. **混合排序**：结合语义相似度和关键词匹配结果
+3. **平台增强**：根据game_id推断平台类型并增强查询
+4. **数据源优先**：根据datasource上下文优先匹配表
+5. **混合排序**：结合语义相似度和关键词匹配结果
 
 **章节来源**
-- [schemaLoader.js:404-430](file://NL2SQL/backend/src/core/schemaLoader.js#L404-L430)
-- [schemaLoader.js:439-480](file://NL2SQL/backend/src/core/schemaLoader.js#L439-L480)
+- [schemaLoader.js:401-407](file://NL2SQL/backend/src/core/schemaLoader.js#L401-L407)
+- [schemaLoader.js:429-519](file://NL2SQL/backend/src/core/schemaLoader.js#L429-L519)
+- [schemaLoader.js:439-450](file://NL2SQL/backend/src/core/schemaLoader.js#L439-L450)
 
 ### 向量存储系统
 
@@ -864,6 +945,10 @@ IM10[实体解析]
 IM11[Markdown渲染]
 IM12[长期记忆]
 IM13[记忆维护]
+IM14[平台术语解析]
+IM15[澄清上下文增强]
+IM16[SQL生成增强]
+IM17[Schema加载器增强]
 end
 EX1 --> IM9
 EX2 --> IM8
@@ -886,15 +971,28 @@ IM1 --> IM10
 IM1 --> IM11
 IM1 --> IM12
 IM1 --> IM13
+IM1 --> IM14
+IM1 --> IM15
+IM1 --> IM16
+IM1 --> IM17
 IM9 --> IM7
 IM8 --> IM7
 IM7 --> IM5
 IM7 --> IM6
 IM7 --> IM10
 IM7 --> IM12
+IM7 --> IM14
+IM7 --> IM15
+IM7 --> IM16
+IM7 --> IM17
 IM12 --> IM13
 IM12 --> IM3
 IM12 --> IM4
+IM14 --> IM12
+IM15 --> IM7
+IM16 --> IM5
+IM17 --> IM5
+IM17 --> IM4
 IM5 --> IM4
 IM5 --> IM3
 IM11 --> IM7
@@ -914,6 +1012,8 @@ IM11 --> IM7
 4. **服务层封装**：LLM服务和Schema服务提供标准化接口
 5. **渲染层集成**：前端组件依赖Markdown渲染系统
 6. **记忆层集成**：长期记忆模块深度集成到核心流程
+7. **平台层集成**：平台术语解析系统集成到意图识别
+8. **上下文层集成**：澄清上下文增强集成到对话管理
 
 **章节来源**
 - [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
@@ -931,6 +1031,8 @@ IM11 --> IM7
 4. **LLM缓存**：常用查询结果缓存
 5. **实体缓存**：实体映射结果缓存
 6. **偏好缓存**：用户偏好查询缓存
+7. **平台映射缓存**：平台术语映射缓存
+8. **澄清上下文缓存**：多轮对话上下文缓存
 
 ### 并发处理
 
@@ -940,6 +1042,8 @@ IM11 --> IM7
 4. **超时控制**：防止资源泄漏
 5. **渲染优化**：异步Markdown渲染避免UI阻塞
 6. **记忆异步存储**：长期记忆提取采用异步方式
+7. **平台解析异步**：平台术语解析异步执行
+8. **SQL生成优化**：SQL生成采用流式处理
 
 ### 内存管理
 
@@ -949,6 +1053,8 @@ IM11 --> IM7
 4. **批量操作**：数据库批量处理
 5. **渲染节流**：避免频繁的DOM更新
 6. **记忆压缩**：定期清理低价值偏好
+7. **平台上下文缓存**：平台信息缓存避免重复计算
+8. **澄清历史压缩**：对话历史智能压缩
 
 ## 故障排除指南
 
@@ -1050,23 +1156,55 @@ IM11 --> IM7
 - 检查数据库索引完整性
 - 重启记忆维护服务
 
-#### 7. 实体解析问题
+#### 7. 平台术语解析问题
 
-**症状**：模糊描述无法映射到具体ID
+**症状**：平台术语无法正确识别
 
 **排查步骤**：
-1. 检查数据库连接
-2. 验证实体类型配置
+1. 检查平台映射配置
+2. 验证用户学习的平台映射
 3. 查看日志错误信息
 4. 检查模拟数据配置
 
 **解决方法**：
-- 修复数据库连接
-- 更新实体映射配置
-- 检查实体表结构
-- 增加实体映射规则
+- 更新平台映射配置
+- 验证平台术语学习
+- 检查平台表结构
+- 增加平台映射规则
 
-#### 8. Markdown渲染问题
+#### 8. 澄清上下文增强问题
+
+**症状**：多轮对话上下文理解失败
+
+**排查步骤**：
+1. 检查澄清历史记录
+2. 验证用户回复分析
+3. 查看日志错误信息
+4. 检查默认选项提取
+
+**解决方法**：
+- 修复澄清历史记录
+- 更新用户回复分析规则
+- 检查默认选项提取逻辑
+- 增加上下文理解规则
+
+#### 9. SQL生成增强问题
+
+**症状**：SQL生成失败或平台信息丢失
+
+**排查步骤**：
+1. 检查平台上下文提取
+2. 验证Schema搜索结果
+3. 查看日志错误信息
+4. 检查SQL生成提示词
+
+**解决方法**：
+- 修复平台上下文提取
+- 更新Schema搜索逻辑
+- 检查SQL生成规则
+- 增加平台信息处理
+
+#### 10. Markdown渲染问题
 
 **症状**：Markdown内容显示异常
 
@@ -1082,7 +1220,7 @@ IM11 --> IM7
 - 更新KaTeX版本
 - 修复CSS样式冲突
 
-#### 9. 记忆管理视图问题
+#### 11. 记忆管理视图问题
 
 **症状**：记忆数据无法正确显示或删除
 
@@ -1139,6 +1277,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 6. **用户体验**：集成Markdown渲染提供丰富展示
 7. **记忆管理**：完整的用户偏好学习和管理
 8. **自动化维护**：智能清理和相似模式合并
+9. **平台识别**：智能识别"新平台"/"老平台"等平台术语
+10. **多轮对话**：增强的澄清机制和上下文理解
 
 ### 功能特色
 
@@ -1152,6 +1292,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 8. **长期记忆**：智能学习用户偏好和查询模式
 9. **记忆维护**：自动清理和相似模式合并
 10. **偏好管理**：完整的用户偏好可视化界面
+11. **平台识别**：智能识别平台术语和数据源
+12. **澄清学习**：澄清轮中的智能业务术语学习
 
 ### 应用价值
 
@@ -1169,5 +1311,9 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 实现记忆共享功能
 - 增加记忆导入导出
 - 支持团队协作记忆
+- 增强平台识别能力
+- 优化多轮对话体验
+- 扩展业务术语库
+- 增加智能推荐功能
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

@@ -193,7 +193,12 @@ const config = {
    * 日志配置
    */
   log: {
-    // 日志级别：debug, info, warn, error
+    // 日志级别：trace, debug, info, warn, error
+    // trace: 最详细，记录所有执行步骤（用于深度调试）
+    // debug: 详细调试信息
+    // info: 一般信息（默认）
+    // warn: 警告信息
+    // error: 错误信息
     level: process.env.LOG_LEVEL || 'info',
     // 日志文件路径
     file: process.env.LOG_FILE || './logs/app.log',
@@ -284,6 +289,46 @@ const config = {
       lowUsage: 30,
       // 字段别名（用户习惯较稳定）
       fieldAlias: 365
+    }
+  },
+
+  // ----------------------------------------
+  // 上下文管理配置（新增）
+  // ----------------------------------------
+  
+  /**
+   * 上下文管理配置
+   * 用于Token预算管理、对话摘要等
+   */
+  contextManagement: {
+    // 是否启用Token预算检查
+    enableTokenBudget: process.env.ENABLE_TOKEN_BUDGET !== 'false', // 默认启用
+    
+    // 是否启用对话摘要
+    enableSummarizer: process.env.ENABLE_SUMMARIZER !== 'false', // 默认启用
+    
+    // Token预算配置
+    tokenBudget: {
+      // 最大上下文Token数（默认128k的80%）
+      maxContextTokens: parseInt(process.env.MAX_CONTEXT_TOKENS) || 102400,
+      // 为模型输出预留的Token数
+      reservedOutputTokens: parseInt(process.env.RESERVED_OUTPUT_TOKENS) || 8192,
+      // 触发警告的阈值比例（0-1）
+      warningThreshold: 0.8,
+      // 触发压缩的阈值比例（0-1）
+      compressionThreshold: 0.9
+    },
+    
+    // 对话摘要配置
+    summarizer: {
+      // 触发摘要的对话轮数阈值
+      triggerRounds: parseInt(process.env.SUMMARIZER_TRIGGER_ROUNDS) || 8,
+      // 保留的最近对话轮数
+      preserveRecentRounds: parseInt(process.env.SUMMARIZER_PRESERVE_ROUNDS) || 4,
+      // 摘要的最大Token数
+      maxSummaryTokens: parseInt(process.env.SUMMARIZER_MAX_TOKENS) || 500,
+      // 摘要更新间隔（轮数）
+      updateInterval: parseInt(process.env.SUMMARIZER_UPDATE_INTERVAL) || 4
     }
   }
 };

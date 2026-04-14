@@ -15,6 +15,13 @@
 - [package.json](file://NL2SQL/backend/package.json)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 新增平台术语学习功能，支持用户对"新平台"/"老平台"等术语的个性化映射
+- 增强datasource类型的字段别名学习能力
+- 更新LLM智能分析功能，支持更精细的偏好提取
+- 改进实体解析机制，支持平台术语的自动识别和映射
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
@@ -34,6 +41,8 @@ NL2SQL长期记忆系统是一个基于三层记忆架构的智能数据查询�
 - **第一层：会话记忆** - 短期对话上下文
 - **第二层：长期记忆** - 用户偏好和查询模式（本系统重点）
 - **第三层：检索记忆** - 向量数据库中的语义检索
+
+**更新** 系统现已增强平台术语学习功能，能够智能识别和学习用户对"新平台"/"老平台"等术语的个性化映射，支持datasource类型的字段别名学习，大大增强了系统的个性化服务能力。
 
 该系统能够智能识别用户的查询模式、字段别名、常用指标和维度偏好，并通过机器学习算法进行智能提炼和存储。
 
@@ -110,8 +119,16 @@ E --> L
    - 业务逻辑定义识别
    - 通用知识过滤
 
+**更新** 新增平台术语学习功能，支持用户对"新平台"/"老平台"等术语的个性化映射学习，特别增强了datasource类型的字段别名学习能力。
+
+4. **即时学习功能**：
+   - 从澄清轮中提取映射关系
+   - 支持Markdown表格格式的游戏ID映射
+   - 支持键值对格式的平台映射
+   - 支持显式声明的映射关系
+
 **章节来源**
-- [longTermMemory.js:1-800](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L800)
+- [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
 
 ### 向量存储模块
 
@@ -135,7 +152,7 @@ E --> L
    - 清理和维护
 
 **章节来源**
-- [vectorStore.js:1-442](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L442)
+- [vectorStore.js:1-621](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L621)
 
 ### 记忆维护模块
 
@@ -260,11 +277,10 @@ F --> J[生成查询意图]
 G --> J
 ```
 
-**图表来源**
-- [nl2sqlEngine.js:191-296](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L191-L296)
+**更新** 新增平台术语解析功能，能够识别"新平台"/"老平台"等术语并映射到相应的数据库标识。
 
 **章节来源**
-- [nl2sqlEngine.js:1-800](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L800)
+- [nl2sqlEngine.js:1-2010](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2010)
 
 ### Schema元数据管理系统
 
@@ -289,7 +305,7 @@ I --> J[返回相关表]
 - [schemaLoader.js:195-290](file://NL2SQL/backend/src/core/schemaLoader.js#L195-L290)
 
 **章节来源**
-- [schemaLoader.js:1-655](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L655)
+- [schemaLoader.js:1-751](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L751)
 
 ### 数据库管理系统
 
@@ -349,6 +365,31 @@ SESSIONS ||--o{ QUERY_HISTORY : contains
 
 **章节来源**
 - [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
+
+### 长期记忆增强功能
+
+**更新** 系统新增了强大的平台术语学习功能，能够智能识别和学习用户对平台术语的个性化映射。
+
+#### 平台术语学习机制
+
+系统现在能够学习用户对"新平台"/"老平台"等术语的个性化映射：
+
+1. **术语识别**：自动识别用户查询中的平台术语
+2. **映射学习**：将用户术语映射到相应的数据库标识
+3. **智能存储**：支持datasource类型的字段别名学习
+4. **自动应用**：在后续查询中自动使用学习到的映射
+
+#### 即时学习功能
+
+系统支持从澄清轮中提取映射关系：
+
+1. **Markdown表格学习**：支持游戏ID映射表格的学习
+2. **键值对学习**：支持"新平台：new_tzpingtai"等格式
+3. **显式声明学习**：支持"华夏对应 game_id=88"等声明
+4. **平台映射学习**：专门支持"新平台"/"老平台"的数据库标识映射
+
+**章节来源**
+- [longTermMemory.js:828-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L828-L965)
 
 ## 依赖关系分析
 
@@ -488,12 +529,15 @@ NL2SQL长期记忆系统是一个功能完整、架构清晰的智能数据查�
 3. **性能优异**：采用向量化和缓存技术提升查询效率
 4. **可靠性强**：完善的错误处理和监控机制
 
+**更新** 新增的平台术语学习功能大大增强了系统的个性化服务能力，现在系统能够智能识别和学习用户对"新平台"/"老平台"等术语的个性化映射，支持datasource类型的字段别名学习。
+
 ### 技术特色
 
 1. **三层记忆架构**：从短期到长期的记忆管理
 2. **语义检索能力**：基于向量相似度的智能搜索
 3. **智能偏好学习**：自动识别和存储用户查询习惯
 4. **分级保留策略**：智能清理过期记忆，优化存储空间
+5. **平台术语学习**：支持用户个性化平台术语映射
 
 ### 发展方向
 

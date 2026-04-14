@@ -19,6 +19,180 @@ const config = require('../core/config');
 const logger = require('../utils/logger');
 
 // ============================================
+// 元数据增强工具函数
+// ============================================
+
+/**
+ * 查询类型枚举
+ */
+const QUERY_TYPES = {
+  DATA_QUERY: 'data_query',      // 数据查询
+  DEFINITION: 'definition',      // 定义/解释查询
+  COMPARISON: 'comparison',      // 对比查询
+  TREND: 'trend',                // 趋势查询
+  CLARIFICATION: 'clarification', // 澄清回复
+  FOLLOW_UP: 'follow_up',        // 跟进查询
+  NEW_TOPIC: 'new_topic'         // 新话题
+};
+
+/**
+ * 计算查询重要性评分
+ * 基于意图的复杂度、成功状态等因素
+ * 
+ * @param {Object} intent - 查询意图
+ * @param {boolean} success - 查询是否成功
+ * @returns {number} 重要性评分 (0-1)
+ */
+function calculateImportance(intent, success = true) {
+  let score = 0.5; // 基础分
+  
+  if (!intent) return score;
+  
+  // 成功查询加分
+  if (success) score += 0.1;
+  
+  // 多维度查询更有价值
+  if (intent.dimensions && intent.dimensions.length > 0) {
+    score += Math.min(intent.dimensions.length * 0.05, 0.15);
+  }
+  
+  // 多指标查询更有价值
+  if (intent.metrics && intent.metrics.length > 0) {
+    score += Math.min(intent.metrics.length * 0.05, 0.15);
+  }
+  
+  // 有筛选条件的查询更具体，更有价值
+  if (intent.filters && intent.filters.length > 0) {
+    score += Math.min(intent.filters.length * 0.03, 0.1);
+  }
+  
+  // 高置信度查询加分
+  if (intent.confidence && intent.confidence > 0.8) {
+    score += 0.1;
+  }
+  
+  // 上下文查询（需要理解上下文的）更有学习价值
+  if (intent.isContextualQuery) {
+    score += 0.05;
+  }
+  
+  return Math.min(score, 1.0);
+}
+
+/**
+ * 分类查询类型
+ * 
+ * @param {Object} intent - 查询意图
+ * @param {string} queryText - 查询文本
+ * @returns {string} 查询类型
+ */
+function classifyQueryType(intent, queryText) {
+  if (!intent || !queryText) return QUERY_TYPES.DATA_QUERY;
+  
+  const text = queryText.toLowerCase();
+  
+  // 澄清回复
+  if (intent.clarification_context || text.length < 20) {
+    return QUERY_TYPES.CLARIFICATION;
+  }
+  
+  // 定义/解释查询
+  if (text.includes('什么') || text.includes('定义') || text.includes('意思') || 
+      text.includes('explain') || text.includes('what is')) {
+    return QUERY_TYPES.DEFINITION;
+  }
+  
+  // 对比查询
+  if (text.includes('对比') || text.includes('比较') || text.includes('vs') || 
+      text.includes('versus') || text.includes('compare')) {
+    return QUERY_TYPES.COMPARISON;
+  }
+  
+  // 趋势查询
+  if (text.includes('趋势') || text.includes('走势') || text.includes('变化') || 
+      text.includes('trend') || text.includes('over time')) {
+    return QUERY_TYPES.TREND;
+  }
+  
+  // 跟进查询（依赖上下文）
+  if (intent.isContextualQuery || text.startsWith('那') || text.startsWith('还有')) {
+    return QUERY_TYPES.FOLLOW_UP;
+  }
+  
+  // 新话题（长查询且置信度高）
+  if (queryText.length > 30 && intent.confidence > 0.7) {
+    return QUERY_TYPES.NEW_TOPIC;
+  }
+  
+  return QUERY_TYPES.DATA_QUERY;
+}
+
+/**
+ * 构建增强的元数据对象
+ * 
+ * @param {Object} baseMetadata - 基础元数据
+ * @param {Object} options - 增强选项
+ * @returns {Object} 增强后的元数据
+ */
+function buildEnhancedMetadata(baseMetadata, options = {}) {
+  const {
+    intent = null,
+    queryText = '',
+    success = true,
+    executionTime = 0,
+    resultCount = 0
+  } = options;
+  
+  // 计算重要性
+  const importanceScore = calculateImportance(intent, success);
+  
+  // 分类查询类型
+  const queryType = classifyQueryType(intent, queryText);
+  
+  // 构建增强元数据
+  const enhancedMetadata = {
+    // 基础信息
+    ...baseMetadata,
+    
+    // 时间戳（毫秒）
+    timestamp: Date.now(),
+    
+    // 重要性评分 (0-1)
+    importanceScore: Math.round(importanceScore * 100) / 100,
+    
+    // 查询类型
+    queryType: queryType,
+    
+    // 查询复杂度（基于维度、指标、筛选器数量）
+    complexity: {
+      dimensions: intent?.dimensions?.length || 0,
+      metrics: intent?.metrics?.length || 0,
+      filters: intent?.filters?.length || 0,
+      total: (intent?.dimensions?.length || 0) + 
+             (intent?.metrics?.length || 0) + 
+             (intent?.filters?.length || 0)
+    },
+    
+    // 执行信息
+    execution: {
+      success: success,
+      executionTime: executionTime,
+      resultCount: resultCount
+    },
+    
+    // 意图摘要（如果存在）
+    intentSummary: intent ? {
+      metrics: intent.metrics || [],
+      dimensions: intent.dimensions || [],
+      timeRange: intent.time_range || null,
+      confidence: intent.confidence || 0
+    } : null
+  };
+  
+  return enhancedMetadata;
+}
+
+// ============================================
 // 模块状态
 // ============================================
 
@@ -437,5 +611,10 @@ module.exports = {
   searchSimilarQueries,
   // 通用操作
   deleteVector,
-  getStats
+  getStats,
+  // 元数据增强工具
+  calculateImportance,
+  classifyQueryType,
+  buildEnhancedMetadata,
+  QUERY_TYPES
 };
