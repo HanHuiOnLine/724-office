@@ -242,6 +242,49 @@ const config = {
     // 是否强制重新向量化Schema（即使向量数据库中已有数据）
     // 设置为 true 时，每次启动都会重新生成向量；设置为 false 时，如果向量已存在则跳过
     revectorize: process.env.SCHEMA_REVECTORIZE === 'true' || false
+  },
+
+  // ----------------------------------------
+  // 长期记忆配置（新增）
+  // ----------------------------------------
+  
+  /**
+   * 长期记忆（Layer 2）配置
+   */
+  longTermMemory: {
+    // 是否启用长期记忆功能
+    enabled: process.env.LTM_ENABLED !== 'false', // 默认启用
+    
+    // 是否使用LLM进行智能提炼
+    // true: 使用LLM分析查询价值，区分个人偏好和通用知识
+    // false: 使用纯逻辑判断（高频模式、高价值模板等）
+    useLLMForExtraction: process.env.LTM_USE_LLM === 'true' || false, // 默认关闭，需要时开启
+    
+    // 存储筛选阈值
+    thresholds: {
+      // 最小置信度
+      minConfidence: 0.7,
+      // 高价值模板最小维度数
+      minDimensionsForTemplate: 2,
+      // 高价值模板最小指标数
+      minMetricsForTemplate: 1,
+      // 频率判断天数
+      recentDaysForFrequency: 7,
+      // 简单查询最小频率
+      minFrequencyForSimple: 2
+    },
+    
+    // 分级保留策略（天数）
+    retention: {
+      // 高频(≥10次)：null表示永久保留
+      highUsage: null,
+      // 中频(3-9次)
+      mediumUsage: 90,
+      // 低频(<3次)
+      lowUsage: 30,
+      // 字段别名（用户习惯较稳定）
+      fieldAlias: 365
+    }
   }
 };
 

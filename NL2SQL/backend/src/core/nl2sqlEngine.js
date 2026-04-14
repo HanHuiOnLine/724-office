@@ -104,20 +104,213 @@ async function resolveEntity(entityName, entityType) {
 }
 
 // ============================================
+// 实体解析辅助函数
+// ============================================
+
+/**
+ * 从上下文中学习实体别名
+ * 当用户在澄清中提供映射关系时（如"青木是游戏名称"），自动学习
+ * @param {string} userId - 用户ID
+ * @param {string} userQuery - 用户当前查询
+ * @param {Object} intent - 当前意图
+ * @param {Object} lastAssistantMsg - 上一条助手消息
+ */
+async function learnEntityAliasFromContext(userId, userQuery, intent, lastAssistantMsg) {
+  try {
+    // 检查是否有新的 filters 被识别（来自用户澄清）
+    if (!intent.filters || intent.filters.length === 0) {
+      return;
+    }
+    
+    const longTermMemory = require('../memory/longTermMemory');
+    
+    for (const filter of intent.filters) {
+      // 如果 filter 中有 original_name，说明是从用户输入解析的
+      if (filter.original_name && filter.field && filter.value) {
+        // 判断字段类型
+        let fieldType = 'filter';
+        if (filter.field === 'game_id') fieldType = 'game';
+        else if (filter.field === 'channel_id') fieldType = 'channel';
+        
+        logger.info('[别名学习] 检测到实体映射，准备学习', {
+          userId,
+          userTerm: filter.original_name,
+          schemaField: `${filter.field}=${filter.value}`,
+          fieldType
+        });
+        
+        // 对于 game_id 和 channel_id，直接存：游戏名 -> ID值
+        // 这样更简洁，查询时直接取这个值作为 game_id
+        if (filter.field === 'game_id' || filter.field === 'channel_id') {
+          const result = await longTermMemory.learnFieldAlias(
+            userId,
+            filter.original_name,  // 用户的说法（如"青木"）
+            filter.value,          // 直接存ID值（如"30"）
+            fieldType
+          );
+          
+          if (result) {
+            logger.info('[别名学习] ✅ 实体映射学习成功（直接映射）', {
+              userId,
+              userTerm: filter.original_name,
+              targetValue: filter.value,
+              field: filter.field
+            });
+          }
+        } else {
+          // 其他字段类型，保持原来的逻辑
+          const result = await longTermMemory.learnFieldAlias(
+            userId,
+            filter.original_name,
+            filter.field,
+            fieldType
+          );
+          
+          if (result) {
+            logger.info('[别名学习] ✅ 字段别名学习成功', {
+              userId,
+              userTerm: filter.original_name,
+              schemaField: filter.field
+            });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    logger.error('[别名学习] 学习实体别名失败:', error);
+  }
+}
+
+/**
+ * 从意图中解析实体（游戏名、渠道名等）
+ * 优先使用长期记忆中学习的别名，同时依赖LLM已识别的filters
+ * @param {Object} intent - 意图对象（LLM已处理过）
+ * @param {string} userQuery - 用户原始查询
+ * @param {string} userId - 用户ID
+ */
+async function resolveEntitiesInIntent(intent, userQuery, userId) {
+  try {
+    // 注意：现在主要依赖LLM在意图识别阶段从上下文中理解映射
+    // 这个函数只处理LLM没有识别到但需要补充的情况
+    
+    const longTermMemory = require('../memory/longTermMemory');
+    
+    // 1. 检查intent中是否已经有game_id filter（LLM已识别）
+    const hasGameIdFilter = intent.filters?.some(f => f.field === 'game_id');
+    
+    if (hasGameIdFilter) {
+      logger.debug('[实体解析] LLM已识别game_id，跳过实体解析');
+      return;
+    }
+    
+    // 2. 从长期记忆加载用户学习的字段别名
+    if (userId) {
+      try {
+        const userPrefs = await longTermMemory.getUserPreferences(userId);
+        const fieldAliases = userPrefs.filter(p => p.preference_type === 'field_alias');
+        
+        // 查找是否有游戏名称的映射
+        for (const alias of fieldAliases) {
+          const content = typeof alias.content === 'string' ? JSON.parse(alias.content) : alias.content;
+          
+          // 检查用户查询中是否包含这个别名
+          if (content.user_term && userQuery.includes(content.user_term)) {
+            // 支持两种存储格式：
+            // 1. 双记录格式：青木 -> game_id, 青木_value -> 30
+            // 2. 直接映射格式：青木 -> 30
+            
+            let gameId = null;
+            
+            // 尝试格式1：查找对应的值映射（如 青木_value -> 30）
+            if (content.schema_field === 'game_id' || content.field_type === 'game') {
+              const valueAlias = fieldAliases.find(a => {
+                const vc = typeof a.content === 'string' ? JSON.parse(a.content) : a.content;
+                return vc.user_term === `${content.user_term}_value`;
+              });
+              
+              if (valueAlias) {
+                const vc = typeof valueAlias.content === 'string' ? JSON.parse(valueAlias.content) : valueAlias.content;
+                gameId = vc.schema_field;
+              }
+            }
+            
+            // 尝试格式2：直接映射（schema_field 是纯数字）
+            if (!gameId && !isNaN(Number(content.schema_field))) {
+              gameId = content.schema_field;
+            }
+            
+            if (gameId) {
+              logger.info(`[实体解析] ✅ 使用长期记忆映射: ${content.user_term} -> game_id=${gameId}`);
+              
+              if (!intent.filters) {
+                intent.filters = [];
+              }
+              
+              intent.filters.push({
+                field: 'game_id',
+                op: '=',
+                value: gameId,
+                original_name: content.user_term
+              });
+              
+              return; // 找到一个就返回
+            }
+          }
+        }
+      } catch (e) {
+        logger.debug('[实体解析] 加载用户别名失败:', e.message);
+      }
+    }
+    
+    // 3. 回退：尝试从硬编码列表解析（兜底）
+    const knownGames = ['青木', '王者荣耀', '和平精英', '无限', '幻灵', '悟道', '星火', '曙光', '华夏'];
+    
+    for (const gameName of knownGames) {
+      if (userQuery.includes(gameName)) {
+        logger.info(`[实体解析] 从硬编码列表发现游戏: ${gameName}`);
+        
+        const entityResult = await resolveEntity(gameName, 'game');
+        
+        if (entityResult.found) {
+          logger.info(`[实体解析] ✅ 成功解析: ${gameName} -> game_id=${entityResult.id}`);
+          
+          if (!intent.filters) {
+            intent.filters = [];
+          }
+          
+          intent.filters.push({
+            field: 'game_id',
+            op: '=',
+            value: entityResult.id,
+            original_name: gameName
+          });
+        }
+        
+        break;
+      }
+    }
+    
+  } catch (error) {
+    logger.error('[实体解析] 解析失败:', error);
+  }
+}
+
+// ============================================
 // 意图识别
 // ============================================
 
 /**
- * 分析用户查询意图（增强版：支持上下文理解）
+ * 分析用户查询意图（增强版：支持上下文理解和长期记忆）
  * 提取时间范围、维度、指标、筛选条件等
  * 
  * @param {string} userQuery - 用户的自然语言查询
  * @param {Array} history - 最近3-5轮对话历史（用于上下文理解）
+ * @param {string} userId - 用户ID（用于读取长期记忆）
  * @returns {Promise<Object>} 意图分析结果
  */
-async function analyzeIntent(userQuery, history = []) {
+async function analyzeIntent(userQuery, history = [], userId = null) {
   // 记录开始分析日志
-  logger.debug('开始分析用户意图', { query: userQuery, historyLength: history.length });
+  logger.debug('开始分析用户意图', { query: userQuery, historyLength: history.length, userId });
   
   // 获取Schema摘要，帮助LLM理解数据结构
   const schemaSummary = schemaLoader.getSchemaSummary();
@@ -133,6 +326,88 @@ ${recentHistory.map((h, i) => `${h.role === 'user' ? '用户' : '助手'}: ${h.c
 重要：请结合上下文理解用户的当前查询。如果当前查询是对之前问题的补充或修正，请整合信息给出完整的意图。`;
   }
   
+  // 获取用户长期记忆偏好
+  let userPreferencesSummary = '';
+  let similarQueriesSummary = '';
+  
+  if (userId) {
+    try {
+      const longTermMemory = require('../memory/longTermMemory');
+      const userPreferences = await longTermMemory.getUserPreferencesForIntent(userId);
+      
+      if (userPreferences && (
+        userPreferences.patterns.length > 0 ||
+        userPreferences.aliases.length > 0 ||
+        userPreferences.metrics.length > 0
+      )) {
+        userPreferencesSummary = `
+## 该用户的历史偏好（用于理解用户习惯）
+
+常用查询模式:
+${userPreferences.patterns.slice(0, 3).map(p => 
+  `- ${p.name}: ${p.dimensions?.slice(0, 3).join('+')}维度, ${p.metrics?.slice(0, 3).join('+')}指标`
+).join('\n')}
+
+字段别名映射（用户说法 → 实际值）:
+${userPreferences.aliases.slice(0, 5).map(a => {
+  const isGameMapping = !isNaN(Number(a.schema_field));
+  if (isGameMapping) {
+    return `- "${a.user_term}" 对应 game_id = ${a.schema_field}`;
+  }
+  return `- "${a.user_term}" → ${a.schema_field}`;
+}).join('\n')}
+
+重要：当用户提到上述游戏名称时，必须在 filters 中使用对应的 game_id，不要虚构其他字段如 database_identifier。
+
+常用指标: ${userPreferences.metrics.slice(0, 5).join(', ')}
+常用维度: ${userPreferences.dimensions.slice(0, 5).join(', ')}
+`;
+      }
+      
+      logger.info('[NL2SQL] ✅ 长期记忆已加载到意图识别', { 
+        userId, 
+        patternCount: userPreferences.patterns.length,
+        aliasCount: userPreferences.aliases.length,
+        metricCount: userPreferences.metrics.length,
+        dimensionCount: userPreferences.dimensions.length
+      });
+    } catch (err) {
+      logger.error('[NL2SQL] ❌ 加载用户长期记忆失败:', err);
+    }
+    
+    // 检索相似历史查询（向量检索）
+    if (config.embedding && config.embedding.enabled) {
+      try {
+        const vectorStore = require('../memory/vectorStore');
+        const queryVector = await llmService.getEmbedding(userQuery);
+        const similarQueries = await vectorStore.searchSimilarQueries(queryVector, 5);
+        
+        // 过滤当前用户的查询
+        const userSimilarQueries = similarQueries.filter(q => 
+          q.metadata?.user_id === userId
+        );
+        
+        if (userSimilarQueries.length > 0) {
+          similarQueriesSummary = `
+## 相似历史查询参考
+${userSimilarQueries.map((q, i) => 
+  `${i+1}. "${q.text}" → 指标: ${q.metadata?.intent?.metrics?.join(', ') || '未知'}`
+).join('\n')}
+`;
+        }
+        
+        logger.info('[NL2SQL] ✅ 相似历史查询检索完成', { 
+          userId, 
+          found: similarQueries.length,
+          userQueries: userSimilarQueries.length,
+          queries: userSimilarQueries.map(q => q.text.substring(0, 30))
+        });
+      } catch (err) {
+        logger.error('[NL2SQL] ❌ 检索相似查询失败:', err);
+      }
+    }
+  }
+  
   // 构造系统提示词
   const systemPrompt = `你是一位有记忆的数据分析助手，负责理解用户的数据查询需求。
 
@@ -144,6 +419,8 @@ ${recentHistory.map((h, i) => `${h.role === 'user' ? '用户' : '助手'}: ${h.c
 数据库Schema概览:
 ${schemaSummary}
 ${contextSummary}
+${userPreferencesSummary}
+${similarQueriesSummary}
 
 请根据上述信息，更新查询状态并提取以下信息以JSON格式返回:
 {
@@ -166,6 +443,7 @@ ${contextSummary}
 2. **智能修正**：如果用户说"算了，查XX"、"不要流水了"，理解为用户想更换指标，不要保留旧指标
 3. **isContextualQuery**: 如果当前查询依赖上下文才能理解（如"那上个月呢？"），设为true
 4. **metrics字段**: 基于当前查询+上下文提到的具体指标识别
+5. **利用历史偏好**：如果用户有历史偏好，优先使用其习惯的维度和指标组合
 
 ## 字段别名参考（用户说法 → Schema字段映射）
 
@@ -189,10 +467,17 @@ ${contextSummary}
 - 区服/服务器 → 字段：server_id
 - 日期/时间/天 → 字段：create_time 或 date
 
-5. time_range: 识别时间范围，支持相对时间和绝对时间
-6. dimensions: 识别分组维度（按什么维度查看，如按日期、按渠道）
-7. filters: 识别筛选条件，如果用户提供了更精确的标识符（如ID），优先使用并自动关联之前的模糊描述
-8. confidence: 置信度（0-1），信息越完整置信度越高
+**重要：理解用户补充的业务知识**
+- 用户可能在对话中补充业务术语映射（如"青木是游戏名称，对应game_id=30"）
+- 用户可能说明特殊术语含义（如"新平台对应数据库new_tzpingtai"）
+- 请从对话上下文中提取这些映射关系，并在后续查询中正确使用
+- 如果用户提到"游戏ID 游戏名称"列表，请理解这是一个映射表，后续查询中遇到游戏名称时对应到正确的game_id
+
+6. time_range: 识别时间范围，支持相对时间和绝对时间
+7. dimensions: 识别分组维度（按什么维度查看，如按日期、按渠道）
+8. filters: 识别筛选条件，如果用户提供了更精确的标识符（如ID），优先使用并自动关联之前的模糊描述
+   - 特别重要：如果对话历史中有"游戏ID 游戏名称"的映射列表，遇到游戏名称时查找对应的game_id
+9. confidence: 置信度（0-1），信息越完整置信度越高
 
 只返回JSON，不要其他解释。`;
 
@@ -258,6 +543,9 @@ ${contextSummary}
         }
       }
     }
+    
+    // 实体解析：尝试从查询中提取游戏/渠道名称并解析为ID
+    await resolveEntitiesInIntent(intent, userQuery, userId);
     
     logger.info('意图分析完成', { 
       query: userQuery,
@@ -487,9 +775,9 @@ ${JSON.stringify(intent, null, 2)}
  * @param {Array} history - 对话历史（用于获取已澄清的信息）
  * @returns {Promise<Object>} {sql: string, explanation: string}
  */
-async function generateSQL(intent, history = []) {
+async function generateSQL(intent, history = [], userId = null) {
   // 记录开始生成日志
-  logger.debug('开始生成SQL', { intent });
+  logger.debug('开始生成SQL', { intent, userId });
   
   // 搜索相关表
   const relevantTables = await schemaLoader.searchRelevantTables(
@@ -526,6 +814,36 @@ async function generateSQL(intent, history = []) {
     }
   }
   
+  // 从长期记忆加载用户学习的字段别名
+  let fieldAliasesInfo = '';
+  if (userId) {
+    try {
+      const longTermMemory = require('../memory/longTermMemory');
+      const userPrefs = await longTermMemory.getUserPreferences(userId);
+      const fieldAliases = userPrefs.filter(p => p.preference_type === 'field_alias');
+      
+      if (fieldAliases.length > 0) {
+        fieldAliasesInfo = '\n用户定义的字段别名（重要，必须遵守）:\n';
+        for (const alias of fieldAliases) {
+          const content = typeof alias.content === 'string' ? JSON.parse(alias.content) : alias.content;
+          // 判断是否是游戏ID映射（值是纯数字）
+          const isGameIdMapping = !isNaN(Number(content.schema_field));
+          if (isGameIdMapping) {
+            fieldAliasesInfo += `- 当用户说"${content.user_term}"时，指的是 game_id = ${content.schema_field}，SQL中必须使用 WHERE game_id = ${content.schema_field}\n`;
+          } else {
+            fieldAliasesInfo += `- 当用户说"${content.user_term}"时，指的是字段: ${content.schema_field}\n`;
+          }
+        }
+        logger.info('[SQL生成] 加载用户字段别名', { 
+          userId, 
+          aliasCount: fieldAliases.length 
+        });
+      }
+    } catch (e) {
+      logger.debug('[SQL生成] 加载字段别名失败:', e.message);
+    }
+  }
+  
   // 构造系统提示词
   const systemPrompt = `你是一位SQL专家，负责将用户的查询需求转换为标准SQL语句。
 
@@ -533,7 +851,7 @@ async function generateSQL(intent, history = []) {
 ${schemaDetail}
 
 预定义指标:
-${metricsInfo}${clarifiedInfo}
+${metricsInfo}${clarifiedInfo}${fieldAliasesInfo}
 
 SQL生成规则:
 1. 只使用SELECT语句，禁止任何DML操作（UPDATE/DELETE/INSERT等）
@@ -550,6 +868,11 @@ SQL生成规则:
 - 只有在存在逻辑冲突或无法合理推断时，才需要询问用户确认
 - 默认执行合理假设，不要事无巨细地确认
 - 例如：用户说"青木的游戏id是30"，应直接使用game_id=30，无需再次确认是否忽略"青木"
+
+意图中的 filters 字段（重要）：
+- intent.filters 数组中包含了已解析的筛选条件，格式为 [{"field": "game_id", "op": "=", "value": "30"}]
+- 这些 filters 是系统已经解析好的精确条件，必须在生成的SQL的WHERE子句中使用
+- 例如：如果 filters 中有 {"field": "game_id", "op": "=", "value": "30"}，则SQL必须包含 WHERE game_id = 30
 
 ## Few-Shot 示例
 
@@ -815,16 +1138,17 @@ ${JSON.stringify(result.data.rows.slice(0, 5), null, 2)}
 
 /**
  * 处理用户查询的主流程
- * 完整的NL2SQL流程：意图识别 → 澄清 → SQL生成 → 执行 → 格式化
+ * 完整的NL2SQL流程：意图识别 → 澄清 → SQL生成 → 执行 → 格式化 → 记忆存储
  * 
  * @param {string} userQuery - 用户查询
  * @param {string} sessionId - 会话ID
  * @param {Function} onProgress - 进度回调函数（可选）
+ * @param {string} userId - 用户ID（用于长期记忆）
  * @returns {Promise<Object>} 处理结果
  */
-async function processQuery(userQuery, sessionId, onProgress = null) {
+async function processQuery(userQuery, sessionId, onProgress = null, userId = null) {
   // 记录开始处理日志
-  logger.info('开始处理查询', { sessionId, query: userQuery });
+  logger.info('开始处理查询', { sessionId, userId, query: userQuery });
   
   // 发送进度更新
   const sendProgress = (step, data) => {
@@ -840,14 +1164,20 @@ async function processQuery(userQuery, sessionId, onProgress = null) {
     sendProgress('loading_history', { message: '加载会话历史...' });
     const history = await database.getSessionMessages(sessionId, 10);
     
+    // 如果没有传入userId，尝试从会话中获取
+    if (!userId) {
+      const session = await database.getSession(sessionId);
+      userId = session?.user_id || 'anonymous';
+    }
+    
     // ----------------------------------------
-    // 步骤2: 意图识别（融合上下文）
+    // 步骤2: 意图识别（融合上下文和长期记忆）
     // ----------------------------------------
     sendProgress('analyzing', { message: '分析查询意图...' });
     
     // 获取最近5轮对话用于上下文理解
     const recentHistory = history.slice(-5);
-    let intent = await analyzeIntent(userQuery, recentHistory);
+    let intent = await analyzeIntent(userQuery, recentHistory, userId);
     
     // 保存用户消息到会话
     await database.addMessage(sessionId, 'user', userQuery, 'text');
@@ -888,6 +1218,9 @@ async function processQuery(userQuery, sessionId, onProgress = null) {
         mergedTimeRange: intent.time_range,
         mergedConfidence: intent.confidence
       });
+      
+      // 学习字段别名：如果用户在澄清中提供了实体映射，记录下来
+      await learnEntityAliasFromContext(userId, userQuery, intent, lastAssistantMsg);
     }
     
     // ----------------------------------------
@@ -903,6 +1236,26 @@ async function processQuery(userQuery, sessionId, onProgress = null) {
     });
     
     if (!completeness.complete) {
+      // 【新增】澄清轮即时学习：从用户输入中提取映射关系
+      // 即使用户输入导致需要澄清，也可能包含高价值的业务映射声明
+      if (userId) {
+        try {
+          const longTermMemory = require('../memory/longTermMemory');
+          const extractionResult = await longTermMemory.extractMappingsFromText(userId, userQuery);
+          
+          if (extractionResult.learned.length > 0) {
+            logger.info('[NL2SQL] ✅ 澄清轮即时学习成功', {
+              userId,
+              learnedCount: extractionResult.learned.length,
+              mappings: extractionResult.learned.map(l => `${l.userTerm}->${l.value}`)
+            });
+          }
+        } catch (learnError) {
+          logger.error('[NL2SQL] 澄清轮即时学习失败:', learnError);
+          // 学习失败不影响主流程，继续澄清
+        }
+      }
+      
       // 需要澄清，生成澄清问题
       sendProgress('clarifying', { message: '需要更多信息...' });
       const clarification = await generateClarification(intent, completeness.missing);
@@ -923,10 +1276,10 @@ async function processQuery(userQuery, sessionId, onProgress = null) {
     }
     
     // ----------------------------------------
-    // 步骤4: 生成SQL（利用历史对话中已澄清的信息）
+    // 步骤4: 生成SQL（利用历史对话中已澄清的信息和长期记忆）
     // ----------------------------------------
     sendProgress('generating', { message: '生成SQL查询...' });
-    const sqlResult = await generateSQL(intent, history);
+    const sqlResult = await generateSQL(intent, history, userId);
     
     // 检查是否需要澄清（大模型无法确定某些信息）
     if (sqlResult.needClarification) {
@@ -984,6 +1337,90 @@ async function processQuery(userQuery, sessionId, onProgress = null) {
       explanation: sqlResult.explanation,
       result: queryResult
     });
+    
+    // ----------------------------------------
+    // 步骤8: 存储查询向量（用于相似查询推荐）
+    // ----------------------------------------
+    if (config.embedding && config.embedding.enabled && userId) {
+      const vectorStore = require('../memory/vectorStore');
+      
+      // 异步存储查询向量，不等待结果
+      (async () => {
+        try {
+          // 获取查询向量
+          const queryVector = await llmService.getEmbedding(userQuery);
+          
+          // 存储到向量库
+          await vectorStore.addQueryVector(
+            `query_${Date.now()}_${userId}`,
+            userQuery,
+            queryVector,
+            {
+              user_id: userId,
+              session_id: sessionId,
+              intent: {
+                metrics: intent.metrics,
+                dimensions: intent.dimensions,
+                time_range: intent.time_range
+              },
+              sql: sqlResult.sql,
+              success: queryResult.success,
+              timestamp: Date.now()
+            }
+          );
+          
+          logger.debug('查询向量已存储', { userId, query: userQuery.substring(0, 50) });
+        } catch (err) {
+          logger.error('存储查询向量失败:', err);
+        }
+      })();
+    }
+    
+    // ----------------------------------------
+    // 步骤9: 提取并存储长期记忆（异步，不阻塞响应）
+    // ----------------------------------------
+    logger.info('[NL2SQL] 准备触发长期记忆存储', { 
+      userId, 
+      hasIntent: !!intent,
+      intentConfidence: intent?.confidence,
+      querySuccess: queryResult.success
+    });
+    
+    // 注意：暂时允许anonymous用户存储，后续有登录系统后可限制
+    if (userId && intent) {
+      const longTermMemory = require('../memory/longTermMemory');
+      
+      logger.info('[NL2SQL] 开始异步提取长期记忆', { userId, query: userQuery.substring(0, 30) });
+      
+      // 异步提取偏好，不等待结果
+      longTermMemory.extractAndStorePreferences(userId, intent, userQuery, {
+        success: queryResult.success,
+        confidence: intent.confidence || 0.5
+      }).then(result => {
+        if (result.stored) {
+          logger.info('[NL2SQL] ✅ 长期记忆存储成功', { 
+            userId, 
+            storedCount: result.preferences.length,
+            reason: result.reason,
+            isPersonal: result.isPersonal,
+            preferenceTypes: result.preferences.map(p => p.preference_type || p.type)
+          });
+        } else {
+          logger.info('[NL2SQL] ⚠️ 长期记忆未存储', { 
+            userId, 
+            reason: result.reason,
+            confidence: intent.confidence
+          });
+        }
+      }).catch(err => {
+        logger.error('[NL2SQL] ❌ 长期记忆存储失败:', err);
+      });
+    } else {
+      logger.info('[NL2SQL] 跳过长期记忆存储', { 
+        userId, 
+        hasIntent: !!intent
+      });
+    }
     
     // 返回最终结果
     return {

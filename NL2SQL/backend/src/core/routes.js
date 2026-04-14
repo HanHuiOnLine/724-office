@@ -448,6 +448,272 @@ router.get('/queries/history', async (req, res) => {
 });
 
 // ============================================
+// 用户偏好（长期记忆）接口
+// ============================================
+
+/**
+ * GET /api/preferences/:userId/raw
+ * 获取用户长期记忆原始数据（用于调试）
+ * 注意：这个路由必须在 /:userId 之前定义
+ */
+router.get('/preferences/:userId/raw', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { type } = req.query;
+    
+    const database = require('./database');
+    
+    // 构建查询条件
+    let sql = 'SELECT * FROM user_preferences WHERE user_id = ?';
+    const params = [userId];
+    
+    if (type) {
+      sql += ' AND preference_type = ?';
+      params.push(type);
+    }
+    
+    sql += ' ORDER BY preference_type, created_at DESC';
+    
+    const rows = await database.query(sql, params);
+    
+    // 解析 content JSON
+    const parsedRows = rows.map(row => ({
+      ...row,
+      content: typeof row.content === 'string' ? JSON.parse(row.content) : row.content
+    }));
+    
+    // 按类型分组
+    const grouped = {
+      field_alias: [],
+      query_pattern: [],
+      metric_preference: [],
+      dimension_preference: []
+    };
+    
+    parsedRows.forEach(row => {
+      if (grouped[row.preference_type]) {
+        grouped[row.preference_type].push(row);
+      }
+    });
+    
+    res.json({
+      success: true,
+      user_id: userId,
+      total_count: rows.length,
+      data: {
+        all: parsedRows,
+        grouped: grouped
+      }
+    });
+  } catch (error) {
+    logger.error('获取原始记忆数据失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '获取原始记忆数据失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * GET /api/preferences/:userId/stats
+ * 获取用户记忆统计
+ * 注意：这个路由必须在 /:userId 之前定义
+ */
+router.get('/preferences/:userId/stats', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const memoryMaintenance = require('../memory/memoryMaintenance');
+    const stats = await memoryMaintenance.getUserMemoryStats(userId);
+    
+    res.json({
+      success: true,
+      user_id: userId,
+      data: stats
+    });
+  } catch (error) {
+    logger.error('获取用户记忆统计失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '获取用户记忆统计失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * GET /api/preferences/:userId
+ * 获取用户偏好列表
+ * 
+ * 查询参数：
+ * - type: 偏好类型筛选（query_pattern|field_alias|metric_preference|dimension_preference）
+ * - limit: 返回数量限制（默认50）
+ */
+router.get('/preferences/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { type, limit = 50 } = req.query;
+    
+    const longTermMemory = require('../memory/longTermMemory');
+    const preferences = await longTermMemory.getUserPreferencesForIntent(userId);
+    
+    // 根据类型过滤
+    let result = preferences;
+    if (type) {
+      switch (type) {
+        case 'query_pattern':
+          result = { patterns: preferences.patterns };
+          break;
+        case 'field_alias':
+          result = { aliases: preferences.aliases };
+          break;
+        case 'metric_preference':
+          result = { metrics: preferences.metrics };
+          break;
+        case 'dimension_preference':
+          result = { dimensions: preferences.dimensions };
+          break;
+      }
+    }
+    
+    res.json({
+      success: true,
+      user_id: userId,
+      data: result
+    });
+  } catch (error) {
+    logger.error('获取用户偏好失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '获取用户偏好失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * POST /api/preferences/:userId/templates
+ * 手动添加查询模板
+ * 
+ * 请求体：
+ * {
+ *   name: "模板名称",
+ *   dimensions: ["维度1", "维度2"],
+ *   metrics: ["指标1"],
+ *   default_time_range: { type: "relative", value: "最近7天" }
+ * }
+ */
+router.post('/preferences/:userId/templates', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const template = req.body;
+    
+    if (!template.name) {
+      return res.status(400).json({
+        success: false,
+        error: '模板名称不能为空'
+      });
+    }
+    
+    const longTermMemory = require('../memory/longTermMemory');
+    const result = await longTermMemory.storeQueryTemplate(userId, template);
+    
+    res.json({
+      success: true,
+      message: '模板已保存',
+      data: result
+    });
+  } catch (error) {
+    logger.error('保存查询模板失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '保存查询模板失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/preferences/:preferenceId
+ * 删除用户偏好
+ */
+router.delete('/preferences/:preferenceId', async (req, res) => {
+  try {
+    const { preferenceId } = req.params;
+    
+    const longTermMemory = require('../memory/longTermMemory');
+    const success = await longTermMemory.deletePreference(parseInt(preferenceId));
+    
+    if (success) {
+      res.json({
+        success: true,
+        message: '偏好已删除'
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: '偏好不存在或删除失败'
+      });
+    }
+  } catch (error) {
+    logger.error('删除偏好失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '删除偏好失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * POST /api/preferences/:userId/learn-alias
+ * 手动学习字段别名
+ * 
+ * 请求体：
+ * {
+ *   user_term: "用户的说法",
+ *   schema_field: "对应的Schema字段",
+ *   field_type: "metric|dimension|filter"
+ * }
+ */
+router.post('/preferences/:userId/learn-alias', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { user_term, schema_field, field_type = 'metric' } = req.body;
+    
+    if (!user_term || !schema_field) {
+      return res.status(400).json({
+        success: false,
+        error: 'user_term和schema_field不能为空'
+      });
+    }
+    
+    const longTermMemory = require('../memory/longTermMemory');
+    const result = await longTermMemory.learnFieldAlias(
+      userId,
+      user_term,
+      schema_field,
+      field_type
+    );
+    
+    if (result) {
+      res.json({
+        success: true,
+        message: '字段别名已学习',
+        data: result
+      });
+    } else {
+      res.json({
+        success: false,
+        message: '无需学习（可能已存在或参数无效）'
+      });
+    }
+  } catch (error) {
+    logger.error('学习字段别名失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '学习字段别名失败: ' + error.message
+    });
+  }
+});
+
+// ============================================
 // 统计信息接口
 // ============================================
 

@@ -44,6 +44,11 @@ let sessionCleanupJob = null;
  */
 let statsCollectionJob = null;
 
+/**
+ * 记忆维护任务引用
+ */
+let memoryMaintenanceJob = null;
+
 // ============================================
 // 启动和停止
 // ============================================
@@ -103,6 +108,19 @@ function start() {
   );
   logger.info('统计收集任务已注册: 每5分钟');
   
+  // ----------------------------------------
+  // 注册记忆维护任务
+  // ----------------------------------------
+  // 每天凌晨3点执行记忆压缩
+  memoryMaintenanceJob = cron.schedule(
+    '0 3 * * *',
+    performMemoryMaintenance,
+    {
+      name: 'memory-maintenance'
+    }
+  );
+  logger.info('记忆维护任务已注册: 每天凌晨3点');
+  
   logger.info('自修复调度器启动完成');
 }
 
@@ -129,6 +147,12 @@ function stop() {
   if (statsCollectionJob) {
     statsCollectionJob.stop();
     statsCollectionJob = null;
+  }
+  
+  // 停止记忆维护任务
+  if (memoryMaintenanceJob) {
+    memoryMaintenanceJob.stop();
+    memoryMaintenanceJob = null;
   }
   
   logger.info('自修复调度器已停止');
@@ -349,6 +373,48 @@ async function cleanupSessions() {
 }
 
 // ============================================
+// 记忆维护
+// ============================================
+
+/**
+ * 执行记忆维护
+ * 压缩和清理过期记忆
+ */
+async function performMemoryMaintenance() {
+  logger.info('========================================');
+  logger.info('开始执行记忆维护...');
+  logger.info('========================================');
+  
+  try {
+    const memoryMaintenance = require('../memory/memoryMaintenance');
+    
+    // 执行记忆压缩
+    const stats = await memoryMaintenance.compressUserMemory();
+    
+    logger.info('记忆维护完成', {
+      usersProcessed: stats.usersProcessed,
+      deleted: stats.deleted.total,
+      retained: stats.retained.total
+    });
+    
+    // 生成健康报告
+    const healthReport = await memoryMaintenance.generateHealthReport();
+    if (healthReport) {
+      logger.info('记忆系统健康报告', {
+        totalPreferences: healthReport.summary?.total_preferences,
+        totalUsers: healthReport.summary?.total_users,
+        estimatedCleanup: healthReport.maintenance?.estimatedCleanup
+      });
+    }
+    
+  } catch (error) {
+    logger.error('记忆维护执行失败:', error);
+  }
+  
+  logger.info('========================================');
+}
+
+// ============================================
 // 统计收集
 // ============================================
 
@@ -399,6 +465,14 @@ async function triggerSessionCleanup() {
   await cleanupSessions();
 }
 
+/**
+ * 手动触发记忆维护
+ */
+async function triggerMemoryMaintenance() {
+  logger.info('手动触发记忆维护...');
+  await performMemoryMaintenance();
+}
+
 // ============================================
 // 导出模块
 // ============================================
@@ -409,5 +483,6 @@ module.exports = {
   stop,
   // 手动触发
   triggerDailyCheck,
-  triggerSessionCleanup
+  triggerSessionCleanup,
+  triggerMemoryMaintenance
 };

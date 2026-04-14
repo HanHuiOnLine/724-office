@@ -140,9 +140,9 @@ CREATE INDEX IF NOT EXISTS idx_query_history_status ON query_history(status);
 CREATE TABLE IF NOT EXISTS user_preferences (
   -- 记录唯一标识
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  -- 用户标识
-  user_id TEXT NOT NULL UNIQUE,
-  -- 偏好类型：alias(字段别名), pattern(查询模式), metric(常用指标)
+  -- 用户标识（移除UNIQUE约束，允许一个用户有多条偏好）
+  user_id TEXT NOT NULL,
+  -- 偏好类型：field_alias(字段别名), query_pattern(查询模式), metric_preference(常用指标), dimension_preference(常用维度)
   preference_type TEXT NOT NULL,
   -- 偏好内容（JSON格式）
   content TEXT NOT NULL,
@@ -160,6 +160,8 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON user_preferences(user_id);
 -- 为preference_type创建索引
 CREATE INDEX IF NOT EXISTS idx_user_preferences_type ON user_preferences(preference_type);
+-- 添加复合索引，加速按用户和类型查询
+CREATE INDEX IF NOT EXISTS idx_user_prefs_user_type ON user_preferences(user_id, preference_type);
 
 -- ============================================
 -- 系统日志表 (system_logs)
@@ -233,7 +235,7 @@ async function initialize() {
         });
         
         // 执行创建表的SQL语句
-        db.exec(CREATE_TABLES_SQL, (err) => {
+        db.exec(CREATE_TABLES_SQL, async (err) => {
           if (err) {
             // 创建表失败，记录错误并拒绝Promise
             logger.error('创建数据表失败:', err);
@@ -243,12 +245,94 @@ async function initialize() {
           
           // 表创建成功，记录日志
           logger.info('数据表初始化完成');
-          // 解析Promise，表示初始化成功
-          resolve();
+          
+          // 执行数据库迁移（修复旧表结构）
+          try {
+            await runMigrations();
+            resolve();
+          } catch (migrationErr) {
+            logger.error('数据库迁移失败:', migrationErr);
+            reject(migrationErr);
+          }
         });
       }
     );
   });
+}
+
+// ============================================
+// 数据库迁移
+// ============================================
+
+/**
+ * 执行数据库迁移
+ * 修复旧版本表结构问题
+ */
+async function runMigrations() {
+  logger.info('执行数据库迁移...');
+  
+  try {
+    // 检查 user_preferences 表是否有 UNIQUE 约束
+    const tableInfo = await query(`PRAGMA index_list(user_preferences)`);
+    
+    // 查找是否有以 sqlite_autoindex 开头的唯一索引（表示有 UNIQUE 约束）
+    const uniqueIndex = tableInfo.find(idx => 
+      idx.name && idx.name.startsWith('sqlite_autoindex') && idx.unique === 1
+    );
+    
+    if (uniqueIndex) {
+      logger.warn('检测到 user_preferences 表有旧的 UNIQUE 约束，需要重建表...');
+      
+      // 重建表以移除 UNIQUE 约束
+      await run('BEGIN TRANSACTION');
+      
+      try {
+        // 1. 创建新表（没有 UNIQUE 约束）
+        await run(`
+          CREATE TABLE user_preferences_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            preference_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            usage_count INTEGER DEFAULT 1,
+            last_used_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        
+        // 2. 复制数据
+        await run(`
+          INSERT INTO user_preferences_new 
+          SELECT * FROM user_preferences
+        `);
+        
+        // 3. 删除旧表
+        await run('DROP TABLE user_preferences');
+        
+        // 4. 重命名新表
+        await run('ALTER TABLE user_preferences_new RENAME TO user_preferences');
+        
+        // 5. 重新创建索引
+        await run('CREATE INDEX idx_user_preferences_user_id ON user_preferences(user_id)');
+        await run('CREATE INDEX idx_user_preferences_type ON user_preferences(preference_type)');
+        await run('CREATE INDEX idx_user_prefs_user_type ON user_preferences(user_id, preference_type)');
+        
+        await run('COMMIT');
+        logger.info('user_preferences 表重建完成，UNIQUE 约束已移除');
+      } catch (err) {
+        await run('ROLLBACK');
+        throw err;
+      }
+    } else {
+      logger.debug('user_preferences 表结构正常，无需迁移');
+    }
+    
+    logger.info('数据库迁移完成');
+  } catch (error) {
+    logger.error('数据库迁移失败:', error);
+    throw error;
+  }
 }
 
 // ============================================
@@ -512,6 +596,191 @@ async function getSessionMessages(sessionId, limit = 50) {
 }
 
 // ============================================
+// 长期记忆（用户偏好）操作
+// ============================================
+
+/**
+ * 添加用户偏好
+ * @param {string} userId - 用户ID
+ * @param {string} type - 偏好类型
+ * @param {Object} content - 偏好内容
+ * @returns {Promise<Object>} 创建的偏好记录
+ */
+async function addUserPreference(userId, type, content) {
+  const sql = `
+    INSERT INTO user_preferences (user_id, preference_type, content, last_used_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+  `;
+  const contentStr = JSON.stringify(content);
+  const result = await run(sql, [userId, type, contentStr]);
+  logger.debug(`添加用户偏好: ${userId}, type=${type}`);
+  return { id: result.lastID, user_id: userId, preference_type: type, content };
+}
+
+/**
+ * 获取用户偏好列表
+ * @param {string} userId - 用户ID
+ * @param {string} type - 偏好类型（可选）
+ * @param {number} limit - 返回数量限制
+ * @returns {Promise<Array>} 偏好列表
+ */
+async function getUserPreferences(userId, type = null, limit = 50) {
+  let sql = `
+    SELECT * FROM user_preferences 
+    WHERE user_id = ?
+  `;
+  const params = [userId];
+  
+  if (type) {
+    sql += ' AND preference_type = ?';
+    params.push(type);
+  }
+  
+  sql += ' ORDER BY usage_count DESC, last_used_at DESC LIMIT ?';
+  params.push(limit);
+  
+  const preferences = await query(sql, params);
+  
+  // 解析content JSON字符串
+  return preferences.map(pref => ({
+    ...pref,
+    content: pref.content ? JSON.parse(pref.content) : null
+  }));
+}
+
+/**
+ * 更新偏好使用统计
+ * @param {number} preferenceId - 偏好记录ID
+ * @returns {Promise<boolean>} 是否更新成功
+ */
+async function updatePreferenceUsage(preferenceId) {
+  const sql = `
+    UPDATE user_preferences 
+    SET usage_count = usage_count + 1, 
+        last_used_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `;
+  const result = await run(sql, [preferenceId]);
+  return result.changes > 0;
+}
+
+/**
+ * 获取常用查询模板（按使用次数排序）
+ * @param {string} userId - 用户ID
+ * @param {number} limit - 返回数量限制
+ * @returns {Promise<Array>} 查询模板列表
+ */
+async function getTopQueryPatterns(userId, limit = 10) {
+  const sql = `
+    SELECT * FROM user_preferences 
+    WHERE user_id = ? AND preference_type = 'query_pattern'
+    ORDER BY usage_count DESC, last_used_at DESC
+    LIMIT ?
+  `;
+  const patterns = await query(sql, [userId, limit]);
+  
+  return patterns.map(p => ({
+    ...p,
+    content: p.content ? JSON.parse(p.content) : null
+  }));
+}
+
+/**
+ * 获取字段别名映射
+ * @param {string} userId - 用户ID
+ * @param {string} fieldName - 字段名（可选，不传则返回所有别名）
+ * @returns {Promise<Array>} 别名映射列表
+ */
+async function getFieldAliases(userId, fieldName = null) {
+  let sql = `
+    SELECT * FROM user_preferences 
+    WHERE user_id = ? AND preference_type = 'field_alias'
+  `;
+  const params = [userId];
+  
+  if (fieldName) {
+    sql += ' AND json_extract(content, "$.schema_field") = ?';
+    params.push(fieldName);
+  }
+  
+  sql += ' ORDER BY usage_count DESC';
+  
+  const aliases = await query(sql, params);
+  
+  return aliases.map(a => ({
+    ...a,
+    content: a.content ? JSON.parse(a.content) : null
+  }));
+}
+
+/**
+ * 查找已存在的偏好（用于判断是否需要更新而非新增）
+ * @param {string} userId - 用户ID
+ * @param {string} type - 偏好类型
+ * @param {string} contentKey - 内容中的关键字段值（如pattern的名称或alias的用户术语）
+ * @returns {Promise<Object|null>} 已存在的偏好记录
+ */
+async function findExistingPreference(userId, type, contentKey) {
+  let sql;
+  let params = [userId, type];
+  
+  if (type === 'query_pattern') {
+    sql = `
+      SELECT * FROM user_preferences 
+      WHERE user_id = ? AND preference_type = ?
+      AND json_extract(content, "$.name") = ?
+    `;
+    params.push(contentKey);
+  } else if (type === 'field_alias') {
+    sql = `
+      SELECT * FROM user_preferences 
+      WHERE user_id = ? AND preference_type = ?
+      AND json_extract(content, "$.user_term") = ?
+    `;
+    params.push(contentKey);
+  } else {
+    return null;
+  }
+  
+  const result = await queryOne(sql, params);
+  if (result) {
+    result.content = result.content ? JSON.parse(result.content) : null;
+  }
+  return result;
+}
+
+/**
+ * 删除用户偏好
+ * @param {number} preferenceId - 偏好记录ID
+ * @returns {Promise<boolean>} 是否删除成功
+ */
+async function deleteUserPreference(preferenceId) {
+  const sql = 'DELETE FROM user_preferences WHERE id = ?';
+  const result = await run(sql, [preferenceId]);
+  logger.debug(`删除用户偏好: ${preferenceId}`);
+  return result.changes > 0;
+}
+
+/**
+ * 获取近期相似查询次数（用于频率判断）
+ * @param {string} userId - 用户ID
+ * @param {string} patternType - 模式类型
+ * @param {number} days - 天数范围
+ * @returns {Promise<number>} 相似查询次数
+ */
+async function getRecentPatternCount(userId, patternType, days = 7) {
+  const sql = `
+    SELECT COUNT(*) as count FROM user_preferences 
+    WHERE user_id = ? 
+    AND preference_type = ?
+    AND created_at > datetime('now', '-${days} days')
+  `;
+  const result = await queryOne(sql, [userId, patternType]);
+  return result ? result.count : 0;
+}
+
+// ============================================
 // 关闭数据库
 // ============================================
 
@@ -566,6 +835,15 @@ module.exports = {
   // 消息操作
   addMessage,
   getSessionMessages,
+  // 长期记忆操作
+  addUserPreference,
+  getUserPreferences,
+  updatePreferenceUsage,
+  getTopQueryPatterns,
+  getFieldAliases,
+  findExistingPreference,
+  deleteUserPreference,
+  getRecentPatternCount,
   // 关闭连接
   close
 };

@@ -78,6 +78,16 @@ const routes = [
     }
   },
   {
+    // 长期记忆管理页面
+    path: '/memory',
+    name: 'memory',
+    component: () => import('../views/MemoryView.vue'),
+    meta: {
+      title: '长期记忆管理',
+      requiresSession: false
+    }
+  },
+  {
     // 404页面
     path: '/:pathMatch(.*)*',
     name: 'not-found',

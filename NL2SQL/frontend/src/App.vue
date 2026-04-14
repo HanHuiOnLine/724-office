@@ -54,6 +54,9 @@
         <el-tooltip content="数据Schema" placement="right">
           <el-button text :icon="Grid" @click="showSchema = true" />
         </el-tooltip>
+        <el-tooltip content="长期记忆" placement="right">
+          <el-button text :icon="Collection" @click="goToMemory" />
+        </el-tooltip>
         <el-tooltip content="设置" placement="right">
           <el-button text :icon="Setting" />
         </el-tooltip>
@@ -100,7 +103,8 @@ import {
   Fold, 
   Expand,
   DataLine,
-  Delete
+  Delete,
+  Collection
 } from '@element-plus/icons-vue'
 // 导入Element Plus消息组件和确认框
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -145,6 +149,13 @@ const router = useRouter()
  */
 function toggleSidebar() {
   isCollapsed.value = !isCollapsed.value
+}
+
+/**
+ * 跳转到长期记忆页面
+ */
+function goToMemory() {
+  router.push('/memory')
 }
 
 /**

@@ -24,8 +24,9 @@
 
 ## 更新摘要
 **变更内容**
-- 移除了WebSocket相关的内容，因为系统已完全迁移到Server-Sent Events (SSE)
-- 新增了SSE实时通信机制的完整文档
+- 系统已完全从WebSocket迁移到Server-Sent Events (SSE)
+- 移除了所有WebSocket相关的配置和实现
+- 新增了完整的SSE实时通信机制文档
 - 更新了NL2SQL后端的实时查询处理流程
 - 添加了前端Vue应用的SSE连接实现
 - 移除了ASR WebSocket配置和实现
@@ -43,14 +44,14 @@
 10. [附录](#附录)
 
 ## 简介
-本文件为 724 Office 项目的 WebSocket API 完整技术文档，重点覆盖以下内容：
+本文件为 724 Office 项目的 Server-Sent Events (SSE) API 完整技术文档，重点覆盖以下内容：
 - Server-Sent Events (SSE) 实时通信机制
 - NL2SQL后端的实时查询处理流程
 - SSE连接建立、消息推送和状态管理
 - 连接参数、错误处理与重试策略
 - 在NL2SQL场景中的应用与性能考量
 
-**重要更新**：系统现已完全迁移到Server-Sent Events (SSE) 实现实时通信，WebSocket功能已被移除。文档已相应更新以反映新的通信机制。
+**重要说明**：系统现已完全迁移到Server-Sent Events (SSE) 实现实时通信，WebSocket功能已被移除。文档已相应更新以反映新的通信机制。
 
 ## 项目结构
 项目采用"模块化单文件"设计，核心入口为 xiaowang.py，负责 HTTP 服务、回调处理、ASR 流程与消息分发；llm.py 提供大模型调用与工具循环；tools.py 注册与执行各类工具；memory.py 提供三层记忆系统；scheduler.py 提供定时任务；router.py 提供多租户路由；mcp_client.py 提供 MCP 协议桥接；self_check_tool.py 文档化自检与自修复模式。
