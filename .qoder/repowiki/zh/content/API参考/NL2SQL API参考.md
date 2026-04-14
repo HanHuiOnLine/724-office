@@ -11,6 +11,8 @@
 - [config.js](file://NL2SQL/backend/src/core/config.js)
 - [database.js](file://NL2SQL/backend/src/core/database.js)
 - [vectorStore.js](file://NL2SQL/backend/src/memory/vectorStore.js)
+- [longTermMemory.js](file://NL2SQL/backend/src/memory/longTermMemory.js)
+- [memoryMaintenance.js](file://NL2SQL/backend/src/memory/memoryMaintenance.js)
 - [logger.js](file://NL2SQL/backend/src/utils/logger.js)
 - [sseHandler.js](file://NL2SQL/backend/src/core/sseHandler.js)
 - [selfRepair.js](file://NL2SQL/backend/src/core/selfRepair.js)
@@ -29,6 +31,7 @@
 - 前端连接方式：从WebSocket改为EventSource
 - 通信机制：单向流式消息传输，简化连接管理
 - 会话删除功能：新增会话删除API端点和前端交互
+- **新增长期记忆管理API端点**：包含偏好管理、模板管理、别名学习等功能
 - **新增SSE查询接口**：POST /api/sse/query端点，支持通过HTTP POST提交查询请求
 - **会话标题自动更新**：当会话标题为默认值时自动更新为查询内容
 
@@ -40,11 +43,12 @@
 5. [详细组件分析](#详细组件分析)
 6. [实体解析与上下文分析](#实体解析与上下文分析)
 7. [会话管理功能](#会话管理功能)
-8. [SSE查询接口](#sse查询接口)
-9. [依赖关系分析](#依赖关系分析)
-10. [性能考虑](#性能考虑)
-11. [故障排除指南](#故障排除指南)
-12. [结论](#结论)
+8. [长期记忆管理API](#长期记忆管理api)
+9. [SSE查询接口](#sse查询接口)
+10. [依赖关系分析](#依赖关系分析)
+11. [性能考虑](#性能考虑)
+12. [故障排除指南](#故障排除指南)
+13. [结论](#结论)
 
 ## 简介
 
@@ -52,7 +56,7 @@ NL2SQL API是一个基于自然语言到SQL转换技术的数据查询服务。�
 
 该系统采用现代化的技术栈，包括Node.js后端、Vue.js前端、SQLite数据库、LanceDB向量数据库，以及集成的LLM（大语言模型）服务。系统支持实时通信、会话管理、查询历史记录、Schema元数据管理等功能。
 
-**更新** 系统已从WebSocket架构迁移到Server-Sent Events (SSE)架构，提供更简洁的单向流式通信机制。新增了实体解析和上下文分析功能，增强了系统的智能化水平，能够更好地理解用户意图和处理复杂的查询场景。同时新增了会话删除功能，提供完整的会话生命周期管理能力。**新增SSE查询接口**，支持通过HTTP POST方式提交查询请求，结果通过SSE流式推送，进一步简化了前端集成。
+**更新** 系统已从WebSocket架构迁移到Server-Sent Events (SSE)架构，提供更简洁的单向流式通信机制。新增了实体解析和上下文分析功能，增强了系统的智能化水平，能够更好地理解用户意图和处理复杂的查询场景。同时新增了会话删除功能，提供完整的会话生命周期管理能力。**新增长期记忆管理API**，包含偏好管理、模板管理、别名学习等功能，支持用户个性化设置和查询优化。**新增SSE查询接口**，支持通过HTTP POST方式提交查询请求，结果通过SSE流式推送，进一步简化了前端集成。
 
 ## 项目结构
 
@@ -76,11 +80,13 @@ end
 subgraph "数据存储"
 J[SQLite 数据库]
 K[LanceDB 向量数据库]
+L[user_preferences 长期记忆表]
 end
 A --> B
 A --> C
 A --> D
 B --> J
+B --> L
 C --> K
 F --> G
 F --> H
@@ -112,6 +118,7 @@ G --> A
 - 会话管理接口
 - 查询历史接口
 - 统计信息接口
+- **新增长期记忆管理接口**：用户偏好、查询模板、字段别名管理
 - **新增SSE接口**：/api/sse/stream和/api/sse/query
 
 ### 3. NL2SQL引擎 (nl2sqlEngine.js)
@@ -121,6 +128,7 @@ G --> A
 - SQL生成和验证
 - 查询执行和结果格式化
 - 流式处理和进度反馈
+- **长期记忆集成**：用户偏好、查询模板、字段别名的智能应用
 
 ### 4. LLM服务 (llmService.js)
 LLM API通信模块：
@@ -144,15 +152,33 @@ LLM API通信模块：
 - 连接清理
 - 多连接支持（多标签页）
 
-**更新** 新增实体解析功能，支持将模糊描述（如"青木"）映射到具体ID（如"30"），并增强上下文分析能力，支持对话历史的理解和融合。
+### 7. 长期记忆管理 (longTermMemory.js)
+**新增组件**：用户长期记忆管理模块：
+- 偏好提取和存储
+- 查询模式识别
+- 字段别名学习
+- 模板管理
+- LLM智能分析
+- 即时学习功能
+
+### 8. 记忆维护 (memoryMaintenance.js)
+**新增组件**：长期记忆维护模块：
+- 记忆压缩和清理
+- 使用频率分级保留
+- 相似模式合并
+- 健康统计报告
+
+**更新** 新增实体解析功能，支持将模糊描述（如"青木"）映射到具体ID（如"30"），并增强上下文分析能力，支持对话历史的理解和融合。新增长期记忆管理功能，包括偏好管理、模板管理、别名学习等，为用户提供个性化的查询体验。
 
 **章节来源**
 - [app.js:97-166](file://NL2SQL/backend/src/app.js#L97-L166)
-- [routes.js:1-629](file://NL2SQL/backend/src/core/routes.js#L1-L629)
+- [routes.js:1-895](file://NL2SQL/backend/src/core/routes.js#L1-L895)
 - [nl2sqlEngine.js:1-1066](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1066)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
 - [schemaLoader.js:1-655](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L655)
 - [sseHandler.js:1-349](file://NL2SQL/backend/src/core/sseHandler.js#L1-L349)
+- [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
+- [memoryMaintenance.js:1-415](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L1-L415)
 
 ## 架构概览
 
@@ -164,6 +190,7 @@ participant Client as 客户端应用
 participant API as REST API
 participant SSE as SSE处理器
 participant Engine as NL2SQL引擎
+participant Memory as 长期记忆
 participant Entity as 实体解析
 participant Context as 上下文分析
 participant LLM as LLM服务
@@ -172,6 +199,8 @@ participant DB as 数据库
 Client->>API : HTTP请求
 API->>SSE : 建立SSE连接
 SSE->>Engine : 处理查询
+Engine->>Memory : 获取用户偏好
+Memory-->>Engine : 偏好数据
 Engine->>Entity : 实体解析
 Entity-->>Engine : 解析结果
 Engine->>Context : 上下文分析
@@ -221,6 +250,13 @@ class NL2SQLEngine {
 +formatResult(result, originalQuery) string
 +processQuery(userQuery, sessionId, onProgress) ProcessResult
 }
+class LongTermMemory {
++extractAndStorePreferences(userId, intent, query, options) PreferenceResult
++getUserPreferencesForIntent(userId) UserPreferences
++learnFieldAlias(userId, userTerm, schemaField, fieldType) AliasResult
++storeQueryTemplate(userId, template) TemplateResult
++findSimilarTemplates(userId, intent) Template[]
+}
 class EntityResolver {
 +resolveEntity(entityName, entityType) EntityResult
 +searchEntities(query, type, limit) Entity[]
@@ -242,6 +278,7 @@ class LLMService {
 +chat(messages, tools, stream) Response
 +getEmbedding(input) number[]
 }
+NL2SQLEngine --> LongTermMemory : 集成
 NL2SQLEngine --> EntityResolver : 使用
 NL2SQLEngine --> IntentAnalyzer : 使用
 NL2SQLEngine --> SQLGenerator : 使用
@@ -251,6 +288,7 @@ NL2SQLEngine --> LLMService : 依赖
 **图表来源**
 - [nl2sqlEngine.js:39-166](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L39-L166)
 - [nl2sqlEngine.js:302-410](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L302-L410)
+- [longTermMemory.js:1114-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1114-L1134)
 - [llmService.js:287-311](file://NL2SQL/backend/src/core/llmService.js#L287-L311)
 
 ### SSE通信流程
@@ -332,17 +370,26 @@ datetime last_used_at
 datetime created_at
 datetime updated_at
 }
+SYSTEM_LOGS {
+integer id PK
+string level
+text message
+string source
+text metadata
+datetime created_at
+}
 SESSIONS ||--o{ MESSAGES : "包含"
 SESSIONS ||--o{ QUERY_HISTORY : "产生"
+USER_PREFERENCES ||--o{ QUERY_HISTORY : "影响"
 ```
 
 **图表来源**
-- [database.js:39-187](file://NL2SQL/backend/src/core/database.js#L39-L187)
+- [database.js:39-189](file://NL2SQL/backend/src/core/database.js#L39-L189)
 
 **章节来源**
 - [nl2sqlEngine.js:1-1066](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1066)
 - [sseHandler.js:1-349](file://NL2SQL/backend/src/core/sseHandler.js#L1-L349)
-- [database.js:1-531](file://NL2SQL/backend/src/core/database.js#L1-L531)
+- [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
 
 ## 实体解析与上下文分析
 
@@ -520,6 +567,212 @@ P --> Q[如果删除当前会话则跳转首页]
 - [session.js:340-368](file://NL2SQL/frontend/src/stores/session.js#L340-L368)
 - [App.vue:180-206](file://NL2SQL/frontend/src/App.vue#L180-L206)
 
+## 长期记忆管理API
+
+### 概述
+
+NL2SQL系统新增了完整的长期记忆管理功能，为用户提供个性化的查询体验。该功能包括用户偏好管理、查询模板管理、字段别名学习等核心组件。
+
+### 用户偏好管理
+
+#### 获取用户偏好列表
+
+**GET /api/preferences/:userId**
+
+获取指定用户的偏好列表，支持按类型筛选和数量限制。
+
+**查询参数**：
+- type: 偏好类型筛选（query_pattern|field_alias|metric_preference|dimension_preference）
+- limit: 返回数量限制（默认50）
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "user_id": "user123",
+  "data": {
+    "patterns": [
+      {
+        "id": 1,
+        "content": {
+          "name": "最近7天_按渠道_按流水",
+          "dimensions": ["渠道"],
+          "metrics": ["流水"],
+          "default_time_range": {"type": "relative", "value": "最近7天"}
+        }
+      }
+    ],
+    "aliases": [
+      {
+        "id": 2,
+        "content": {
+          "user_term": "青木",
+          "schema_field": "30",
+          "field_type": "game"
+        }
+      }
+    ],
+    "metrics": ["流水", "DAU"],
+    "dimensions": ["渠道", "日期"]
+  }
+}
+```
+
+#### 获取用户记忆统计
+
+**GET /api/preferences/:userId/stats**
+
+获取用户的长期记忆统计信息，包括各类偏好的数量和使用情况。
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "user_id": "user123",
+  "data": {
+    "total": 15,
+    "byType": [
+      {"preference_type": "query_pattern", "count": 8, "avg_usage": 3.2},
+      {"preference_type": "field_alias", "count": 5, "avg_usage": 1.8},
+      {"preference_type": "metric_preference", "count": 2, "avg_usage": 2.5}
+    ]
+  }
+}
+```
+
+### 查询模板管理
+
+#### 添加查询模板
+
+**POST /api/preferences/:userId/templates**
+
+手动添加查询模板，支持自定义维度、指标、时间范围等。
+
+**请求体**：
+```json
+{
+  "name": "模板名称",
+  "dimensions": ["维度1", "维度2"],
+  "metrics": ["指标1"],
+  "default_time_range": {"type": "relative", "value": "最近7天"},
+  "filter_pattern": [{"field": "status", "op": "=", "value": "active"}]
+}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "模板已保存",
+  "data": {
+    "id": 1,
+    "user_id": "user123",
+    "preference_type": "query_pattern",
+    "content": {
+      "name": "模板名称",
+      "dimensions": ["维度1", "维度2"],
+      "metrics": ["指标1"],
+      "default_time_range": {"type": "relative", "value": "最近7天"}
+    }
+  }
+}
+```
+
+#### 删除用户偏好
+
+**DELETE /api/preferences/:preferenceId**
+
+删除指定的用户偏好记录。
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "偏好已删除"
+}
+```
+
+### 字段别名学习
+
+#### 手动学习字段别名
+
+**POST /api/preferences/:userId/learn-alias**
+
+手动学习字段别名映射，支持用户自定义术语与数据库字段的映射关系。
+
+**请求体**：
+```json
+{
+  "user_term": "用户的说法",
+  "schema_field": "对应的Schema字段",
+  "field_type": "metric|dimension|filter"
+}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "字段别名已学习",
+  "data": {
+    "id": 3,
+    "user_id": "user123",
+    "preference_type": "field_alias",
+    "content": {
+      "user_term": "青木",
+      "schema_field": "30",
+      "field_type": "game",
+      "confidence": 0.8
+    }
+  }
+}
+```
+
+### 长期记忆维护
+
+#### 记忆压缩与清理
+
+系统自动维护长期记忆，根据使用频率实施分级保留策略：
+
+- **高频(≥10次)**：永久保留
+- **中频(3-9次)**：90天未用则清理
+- **低频(<3次)**：30天未用则清理
+- **字段别名**：365天未用则清理
+
+#### 相似模式合并
+
+系统会自动合并相似的查询模式，减少冗余偏好，提高推荐质量。
+
+### 长期记忆配置
+
+长期记忆功能可通过配置文件进行控制：
+
+```javascript
+longTermMemory: {
+  enabled: true,                    // 是否启用长期记忆功能
+  useLLMForExtraction: false,       // 是否使用LLM进行智能提炼
+  thresholds: {
+    minConfidence: 0.7,             // 最小置信度
+    minDimensionsForTemplate: 2,    // 高价值模板最小维度数
+    minMetricsForTemplate: 1,       // 高价值模板最小指标数
+    recentDaysForFrequency: 7,      // 频率判断天数
+    minFrequencyForSimple: 2        // 简单查询最小频率
+  },
+  retention: {
+    highUsage: null,                // 高频保留天数（null表示永久）
+    mediumUsage: 90,                // 中频保留天数
+    lowUsage: 30,                   // 低频保留天数
+    fieldAlias: 365                 // 字段别名保留天数
+  }
+}
+```
+
+**章节来源**
+- [routes.js:518-714](file://NL2SQL/backend/src/core/routes.js#L518-L714)
+- [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
+- [memoryMaintenance.js:1-415](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L1-L415)
+- [database.js:608-763](file://NL2SQL/backend/src/core/database.js#L608-L763)
+
 ## SSE查询接口
 
 ### 接口概述
@@ -628,11 +881,15 @@ J[schemaLoader.js]
 K[database.js]
 L[vectorStore.js]
 M[sseHandler.js]
-N[实体解析模块]
-O[上下文分析模块]
-P[会话删除模块]
-Q[SSE查询接口]
-R[会话标题更新]
+N[longTermMemory.js]
+O[memoryMaintenance.js]
+P[实体解析模块]
+Q[上下文分析模块]
+R[会话删除模块]
+S[SSE查询接口]
+T[会话标题更新]
+U[长期记忆管理]
+V[记忆维护]
 end
 F --> A
 F --> G
@@ -644,15 +901,21 @@ H --> I
 H --> J
 H --> K
 H --> N
-H --> O
+H --> P
+H --> Q
 I --> E
 J --> L
 J --> I
 K --> C
 L --> D
-G --> P
-G --> Q
-Q --> R
+G --> R
+G --> S
+G --> U
+G --> V
+U --> N
+U --> O
+V --> O
+S --> T
 ```
 
 **图表来源**
@@ -670,11 +933,13 @@ Q --> R
 | LLM API | LLM_API_KEY | 无 | 认证密钥 |
 | 数据库 | DB_PATH | ./data/sessions.db | SQLite路径 |
 | 向量数据库 | VECTOR_DB_PATH | ./data/vectordb | LanceDB路径 |
+| 长期记忆 | LTM_ENABLED | true | 是否启用长期记忆 |
+| 长期记忆 | LTM_USE_LLM | false | 是否使用LLM分析 |
 | 安全 | ALLOWED_TABLES | 空 | 表访问白名单 |
 | 性能 | MAX_QUERY_ROWS | 1000 | 查询行数限制 |
 
 **章节来源**
-- [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
+- [config.js:16-332](file://NL2SQL/backend/src/core/config.js#L16-L332)
 - [package.json:10-28](file://NL2SQL/backend/package.json#L10-L28)
 
 ## 性能考虑
@@ -683,6 +948,7 @@ Q --> R
 - Schema元数据缓存：1小时过期时间
 - 日志文件轮转：10MB大小限制，最多5个文件
 - 向量数据库：支持强制重新向量化
+- **长期记忆缓存**：用户偏好按类型缓存，减少数据库查询
 
 ### 2. 连接管理
 - SSE连接超时：90秒
@@ -694,6 +960,7 @@ Q --> R
 - SQL生成时自动添加LIMIT限制
 - 支持CTE（公用表表达式）提高复杂查询可读性
 - 向量化搜索支持语义相似度匹配
+- **长期记忆查询优化**：使用索引加速偏好查询
 
 ### 4. 错误处理
 - LLM API重试机制：最多3次重试
@@ -723,7 +990,20 @@ Q --> R
 - **连接复用**：通过现有的SSE连接处理查询，避免重复连接开销
 - **异步处理**：查询处理在后台异步进行，不影响HTTP响应速度
 
-**更新** 新增实体解析和上下文分析的性能优化策略，包括数据库连接优先级、模拟数据回退机制等。新增会话删除功能的性能优化措施。新增SSE架构相关的性能优化策略，包括多连接支持和自动清理机制。新增SSE查询接口的性能优化策略，包括即时响应和连接复用机制。
+### 9. 长期记忆性能优化
+- **数据库索引**：为user_id和preference_type创建复合索引
+- **查询优化**：使用JSON函数进行内容查询，避免全表扫描
+- **缓存策略**：用户偏好按类型缓存，减少重复查询
+- **批量操作**：支持批量获取用户偏好，减少数据库往返
+- **内存管理**：定期清理不使用的偏好缓存
+
+### 10. 记忆维护性能优化
+- **增量清理**：只处理最近更新的用户，避免全表扫描
+- **分级处理**：按使用频率分批处理，提高效率
+- **并行处理**：支持多用户并行压缩，充分利用CPU资源
+- **统计优化**：使用聚合查询减少数据传输
+
+**更新** 新增长期记忆相关的性能优化策略，包括数据库索引、查询优化、缓存策略等。新增记忆维护功能的性能优化措施。新增SSE架构相关的性能优化策略，包括多连接支持和自动清理机制。新增SSE查询接口的性能优化策略，包括即时响应和连接复用机制。
 
 ## 故障排除指南
 
@@ -796,12 +1076,38 @@ Q --> R
 - 确认查询内容长度限制
 - 检查会话状态是否为active
 
-**更新** 新增实体解析相关的故障排除指南和新增会话删除功能的故障排除指南。新增SSE架构相关的故障排除指南。新增SSE查询接口相关的故障排除指南。
+#### 10. 长期记忆功能异常
+**症状**：用户偏好无法保存或获取
+**解决方案**：
+- 检查LTM_ENABLED配置
+- 验证数据库user_preferences表结构
+- 确认JSON内容格式正确
+- 检查用户ID格式和权限
+
+#### 11. 记忆维护失败
+**症状**：长期记忆清理或合并功能异常
+**解决方案**：
+- 检查数据库连接状态
+- 验证SQL语句语法
+- 确认用户偏好数据完整性
+- 检查内存使用情况
+
+#### 12. 字段别名学习失败
+**症状**：手动学习字段别名不生效
+**解决方案**：
+- 检查请求体格式
+- 验证用户术语和Schema字段
+- 确认字段类型参数
+- 检查数据库约束冲突
+
+**更新** 新增长期记忆相关的故障排除指南，包括偏好管理、模板管理、别名学习等功能。新增记忆维护功能的故障排除指南。新增SSE架构相关的故障排除指南。新增SSE查询接口相关的故障排除指南。
 
 **章节来源**
 - [llmService.js:167-195](file://NL2SQL/backend/src/core/llmService.js#L167-L195)
 - [database.js:198-252](file://NL2SQL/backend/src/core/database.js#L198-L252)
 - [sseHandler.js:373-394](file://NL2SQL/backend/src/core/sseHandler.js#L373-L394)
+- [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
+- [memoryMaintenance.js:1-415](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L1-L415)
 
 ## 结论
 
@@ -817,6 +1123,7 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 - **完整的会话管理**：支持会话创建、查询、删除的完整生命周期
 - **SSE架构优势**：简化连接管理，支持多连接，提高系统稳定性
 - **灵活的查询接口**：支持SSE连接和HTTP POST两种查询方式
+- **长期记忆管理**：提供用户偏好、查询模板、字段别名等个性化功能
 
 ### 功能特性
 - 完整的RESTful API接口
@@ -828,6 +1135,8 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 - **会话删除功能**：提供安全的会话清理能力
 - **SSE流式通信**：支持实时进度反馈和结果推送
 - **SSE查询接口**：通过HTTP POST提交查询，简化前端集成
+- **长期记忆管理**：用户偏好、查询模板、字段别名的完整管理
+- **记忆维护**：自动清理、合并相似模式等维护功能
 
 ### 扩展建议
 1. **性能优化**：考虑添加查询缓存机制
@@ -838,5 +1147,7 @@ NL2SQL API是一个功能完整、架构清晰的自然语言到SQL转换服务�
 6. **会话管理增强**：考虑添加会话归档和恢复功能
 7. **SSE优化**：考虑添加连接重连机制和心跳检测
 8. **查询接口优化**：支持批量查询和并发处理
+9. **长期记忆增强**：支持跨会话偏好共享和同步
+10. **记忆学习优化**：增强LLM智能分析能力，提高学习准确性
 
-该系统为数据查询场景提供了强大的自然语言接口，能够有效降低数据分析的门槛，提高工作效率。新增的实体解析、上下文分析、会话删除功能和SSE架构进一步提升了系统的智能化水平和用户体验，使其能够更好地理解和处理复杂的查询场景，同时提供完整的会话生命周期管理能力和稳定的实时通信机制。**新增的SSE查询接口**为前端集成了更多灵活性，支持不同场景下的查询需求，进一步提升了系统的易用性和扩展性。
+该系统为数据查询场景提供了强大的自然语言接口，能够有效降低数据分析的门槛，提高工作效率。新增的实体解析、上下文分析、会话删除、长期记忆管理功能和SSE架构进一步提升了系统的智能化水平和用户体验，使其能够更好地理解和处理复杂的查询场景，同时提供完整的会话生命周期管理能力和稳定的实时通信机制。**新增的长期记忆管理API**为用户提供了个性化的查询体验，支持用户偏好、查询模板、字段别名等管理功能，进一步提升了系统的易用性和扩展性。**新增的SSE查询接口**为前端集成了更多灵活性，支持不同场景下的查询需求，进一步提升了系统的易用性和扩展性。

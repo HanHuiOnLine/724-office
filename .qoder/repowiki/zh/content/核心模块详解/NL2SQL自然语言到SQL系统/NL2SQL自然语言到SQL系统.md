@@ -12,23 +12,26 @@
 - [wsHandler.js](file://NL2SQL/backend/src/core/wsHandler.js)
 - [logger.js](file://NL2SQL/backend/src/utils/logger.js)
 - [config.js](file://NL2SQL/backend/src/core/config.js)
-- [schema-metadata.json](file://NL2SQL/backend/config/schema-metadata.json)
+- [longTermMemory.js](file://NL2SQL/backend/src/memory/longTermMemory.js)
+- [memoryMaintenance.js](file://NL2SQL/backend/src/memory/memoryMaintenance.js)
 - [main.js](file://NL2SQL/frontend/src/main.js)
 - [router.js](file://NL2SQL/frontend/src/router/index.js)
 - [session.js](file://NL2SQL/frontend/src/stores/session.js)
 - [markdownRenderer.js](file://NL2SQL/frontend/src/utils/markdownRenderer.js)
 - [ChatView.vue](file://NL2SQL/frontend/src/views/ChatView.vue)
+- [MemoryView.vue](file://NL2SQL/frontend/src/views/MemoryView.vue)
 - [package.json](file://NL2SQL/backend/package.json)
 - [package.json](file://NL2SQL/frontend/package.json)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增实体解析系统(resolveEntity)，支持模糊描述到具体ID的映射
-- 增强的上下文意图分析(analyzeIntent)，支持对话历史的深度融合
-- Markdown渲染系统集成，提供丰富的前端展示功能
-- 智能LLM意图更新机制(updateIntentWithLLM)，实现更自然的对话体验
-- 增强的SQL生成策略，支持上下文理解和历史信息整合
+- 新增长期记忆功能，支持用户偏好和查询模式的智能存储与管理
+- 增强的实体解析系统，集成长期记忆进行智能别名学习
+- 改进的上下文分析能力，支持LLM驱动的意图更新机制
+- 完善的Markdown渲染系统，提供丰富的前端展示功能
+- 新增记忆维护模块，实现智能清理和相似模式合并
+- 前端新增记忆管理视图，提供用户偏好可视化界面
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -55,6 +58,9 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **实体解析**：支持模糊描述到具体ID的智能映射
 - **上下文理解**：深度融合对话历史的智能分析
 - **Markdown渲染**：丰富的前端展示和交互体验
+- **长期记忆**：智能学习用户偏好和查询模式
+- **记忆维护**：自动清理和相似模式合并
+- **偏好管理**：完整的用户偏好可视化界面
 
 ## 项目结构
 
@@ -66,9 +72,10 @@ subgraph "前端应用 (Vue.js)"
 FE1[ChatView.vue]
 FE2[SchemaView.vue]
 FE3[HistoryView.vue]
-FE4[Session Store]
-FE5[Router]
-FE6[Markdown Renderer]
+FE4[MemoryView.vue]
+FE5[Session Store]
+FE6[Router]
+FE7[Markdown Renderer]
 end
 subgraph "后端服务 (Node.js)"
 BE1[App.js]
@@ -79,6 +86,9 @@ BE5[数据库管理]
 BE6[WebSocket处理器]
 BE7[API路由]
 BE8[实体解析系统]
+BE9[长期记忆模块]
+BE10[记忆维护模块]
+BE11[向量存储模块]
 end
 subgraph "数据存储"
 DS1[SQLite数据库]
@@ -88,9 +98,10 @@ end
 FE1 --> BE6
 FE2 --> BE7
 FE3 --> BE7
-FE4 --> BE6
-FE5 --> FE1
-FE6 --> BE2
+FE4 --> BE7
+FE5 --> BE6
+FE6 --> FE1
+FE7 --> BE2
 BE1 --> BE2
 BE2 --> BE3
 BE2 --> BE4
@@ -98,6 +109,9 @@ BE2 --> BE5
 BE6 --> BE2
 BE7 --> BE5
 BE8 --> BE2
+BE9 --> BE2
+BE10 --> BE9
+BE11 --> BE2
 BE4 --> DS3
 BE5 --> DS1
 BE4 --> DS2
@@ -107,11 +121,13 @@ BE4 --> DS2
 - [app.js:1-266](file://NL2SQL/backend/src/app.js#L1-L266)
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
+- [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
 
 **章节来源**
 - [app.js:1-266](file://NL2SQL/backend/src/app.js#L1-L266)
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
+- [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
 
 ## 核心组件
 
@@ -120,7 +136,7 @@ BE4 --> DS2
 系统的核心由以下关键组件构成：
 
 #### 1. NL2SQL引擎
-负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**实体解析系统(resolveEntity)和增强的上下文意图分析(analyzeIntent)。
+负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**长期记忆集成和增强的实体解析系统。
 
 #### 2. LLM服务
 封装与大型语言模型的交互，提供聊天、嵌入向量获取和重试机制。
@@ -128,11 +144,11 @@ BE4 --> DS2
 #### 3. Schema加载器
 管理数据库Schema元数据，提供Schema查询、匹配和验证功能。
 
-#### 4. 向量存储
+#### 4. 向量存储模块
 基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。
 
 #### 5. 数据库管理
-使用SQLite存储会话历史、消息记录和查询日志。
+使用SQLite存储会话历史、消息记录、查询日志和用户偏好。
 
 #### 6. WebSocket处理器
 实现实时通信，支持流式响应和心跳检测。
@@ -140,13 +156,21 @@ BE4 --> DS2
 #### 7. 实体解析系统
 **新增**支持模糊描述到具体ID的智能映射，如将"青木"映射到游戏ID。
 
+#### 8. 长期记忆模块
+**新增**用户长期记忆管理，包括偏好提取、存储、检索和维护功能。
+
+#### 9. 记忆维护模块
+**新增**实现长期记忆的自动清理、相似模式合并和统计报告。
+
 **章节来源**
-- [nl2sqlEngine.js:1-1066](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1066)
+- [nl2sqlEngine.js:1-1597](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L1597)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
 - [schemaLoader.js:1-655](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L655)
 - [vectorStore.js:1-442](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L442)
-- [database.js:1-531](file://NL2SQL/backend/src/core/database.js#L1-L531)
+- [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
 - [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
+- [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
+- [memoryMaintenance.js:1-415](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L1-L415)
 
 ### 前端核心组件
 
@@ -163,6 +187,7 @@ BE4 --> DS2
 - ChatView：主要的聊天界面，**集成了Markdown渲染系统**
 - SchemaView：数据Schema展示
 - HistoryView：查询历史记录
+- MemoryView：**新增**长期记忆管理界面
 - SchemaViewer：Schema可视化组件
 
 #### 5. Markdown渲染系统
@@ -173,6 +198,7 @@ BE4 --> DS2
 - [router.js:1-137](file://NL2SQL/frontend/src/router/index.js#L1-L137)
 - [session.js:1-383](file://NL2SQL/frontend/src/stores/session.js#L1-L383)
 - [ChatView.vue:1-692](file://NL2SQL/frontend/src/views/ChatView.vue#L1-L692)
+- [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 
 ## 架构概览
@@ -185,18 +211,23 @@ subgraph "表现层"
 UI[Vue.js前端]
 WS[WebSocket客户端]
 MR[Markdown渲染器]
+MV[MemoryView]
 end
 subgraph "应用层"
 API[RESTful API]
 WS_SERVER[WebSocket服务器]
 ENGINE[NL2SQL引擎]
 ENDPOINT[实体解析端点]
+LT_ENDPOINT[长期记忆端点]
+ENDPOINT2[记忆维护端点]
+ENDPOINT3[向量存储端点]
 end
 subgraph "服务层"
 LLM[LLM服务]
 SCHEMA[Schema服务]
 VECTOR[向量服务]
 ENTITIES[实体服务]
+MEMORY[记忆服务]
 end
 subgraph "数据层"
 SQLITE[SQLite数据库]
@@ -205,6 +236,7 @@ METADATA[Schema元数据]
 end
 UI --> API
 UI --> MR
+UI --> MV
 WS --> WS_SERVER
 WS_SERVER --> ENGINE
 API --> ENGINE
@@ -212,16 +244,20 @@ ENGINE --> LLM
 ENGINE --> SCHEMA
 ENGINE --> VECTOR
 ENGINE --> ENTITIES
+ENGINE --> MEMORY
 SCHEMA --> METADATA
 ENGINE --> SQLITE
 ENGINE --> LANCEDB
 ENTITIES --> SQLITE
+MEMORY --> SQLITE
+MEMORY --> LANCEDB
 ```
 
 **图表来源**
 - [app.js:88-111](file://NL2SQL/backend/src/app.js#L88-L111)
 - [routes.js:1-538](file://NL2SQL/backend/src/core/routes.js#L1-L538)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
+- [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
 
 ### 数据流架构
 
@@ -231,6 +267,7 @@ participant Client as 客户端
 participant WS as WebSocket服务器
 participant Engine as NL2SQL引擎
 participant Entity as 实体解析系统
+participant Memory as 长期记忆模块
 participant LLM as LLM服务
 participant Schema as Schema加载器
 participant DB as 数据库
@@ -240,6 +277,8 @@ Engine->>Engine : 意图识别(融合上下文)
 Engine->>LLM : 分析用户意图
 LLM-->>Engine : 意图分析结果
 Engine->>Entity : 解析实体ID
+Entity->>Memory : 学习字段别名
+Memory-->>Entity : 返回学习结果
 Entity-->>Engine : 实体映射结果
 Engine->>Schema : 搜索相关表
 Schema-->>Engine : 表结构信息
@@ -250,6 +289,8 @@ Engine->>DB : 执行查询
 DB-->>Engine : 查询结果
 Engine->>LLM : 格式化结果
 LLM-->>Engine : 自然语言回复
+Engine->>Memory : 提取长期记忆
+Memory-->>Engine : 返回偏好信息
 Engine-->>WS : 返回结果
 WS-->>Client : 发送响应
 ```
@@ -257,6 +298,7 @@ WS-->>Client : 发送响应
 **图表来源**
 - [wsHandler.js:197-247](file://NL2SQL/backend/src/core/wsHandler.js#L197-L247)
 - [nl2sqlEngine.js:596-778](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L596-L778)
+- [longTermMemory.js:827-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L827-L965)
 
 ## 详细组件分析
 
@@ -264,44 +306,42 @@ WS-->>Client : 发送响应
 
 NL2SQL引擎是系统的核心，实现了完整的自然语言到SQL转换流程：
 
-#### 实体解析系统
+#### 长期记忆集成
 
-**新增**实体解析系统(resolveEntity)支持模糊描述到具体ID的智能映射：
+**新增**长期记忆模块深度集成到NL2SQL引擎中：
 
 ```mermaid
 flowchart TD
-Start([开始实体解析]) --> CheckDB{数据库连接可用?}
-CheckDB --> |否| MockData[使用模拟数据]
-CheckDB --> |是| QueryDB[查询数据库]
-MockData --> CheckType{实体类型匹配?}
-QueryDB --> CheckResults{查询结果存在?}
-CheckType --> |是| ReturnEntity[返回实体信息]
-CheckType --> |否| ReturnNotFound[返回未找到]
-CheckResults --> |是| CheckExact{精确匹配?}
-CheckResults --> |否| ReturnNotFound
-CheckExact --> |是| ReturnExact[返回精确匹配]
-CheckExact --> |否| ReturnSimilar[返回相似实体]
-ReturnEntity --> End([结束])
-ReturnNotFound --> End
-ReturnExact --> End
-ReturnSimilar --> End
+Start([开始查询处理]) --> CheckMemory{长期记忆启用?}
+CheckMemory --> |否| NormalProcess[正常处理流程]
+CheckMemory --> |是| ExtractPref[提取用户偏好]
+ExtractPref --> AnalyzeLLM{LLM智能分析?}
+AnalyzeLLM --> |是| LLMParse[LLM解析查询价值]
+AnalyzeLLM --> |否| LogicJudge[逻辑判断筛选]
+LLMParse --> FilterPref[过滤有效偏好]
+LogicJudge --> FilterPref
+FilterPref --> StorePref[存储用户偏好]
+StorePref --> AsyncLearn[异步学习实体别名]
+AsyncLearn --> NormalProcess
+NormalProcess --> End([结束])
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:38-104](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L38-L104)
+- [nl2sqlEngine.js:1484-1517](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1484-L1517)
+- [longTermMemory.js:311-484](file://NL2SQL/backend/src/memory/longTermMemory.js#L311-L484)
 
-#### 增强的上下文意图分析
+#### 增强的实体解析系统
 
-**更新**增强的analyzeIntent函数支持深度对话历史理解：
+**更新**实体解析系统集成长期记忆功能：
 
-1. **上下文融合**：将最近5轮对话历史融入意图分析
-2. **智能修正**：支持用户对之前查询的修改和替换
-3. **上下文查询检测**：识别依赖上下文才能理解的查询
-4. **置信度评估**：动态调整意图识别的置信度
+1. **智能别名学习**：在澄清轮中自动学习用户提供的映射关系
+2. **直接值映射**：对于game_id和channel_id直接存储ID值
+3. **字段类型识别**：自动识别实体类型（game、channel、datasource）
+4. **冲突检测**：避免重复学习和映射冲突
 
 **章节来源**
-- [nl2sqlEngine.js:118-279](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L118-L279)
-- [nl2sqlEngine.js:856-891](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L856-L891)
+- [nl2sqlEngine.js:118-182](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L118-L182)
+- [longTermMemory.js:827-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L827-L965)
 
 #### 智能LLM意图更新
 
@@ -324,7 +364,7 @@ stateDiagram-v2
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:342-406](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L342-L406)
+- [nl2sqlEngine.js:630-694](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L630-L694)
 
 #### SQL生成策略
 
@@ -339,6 +379,97 @@ stateDiagram-v2
 **章节来源**
 - [nl2sqlEngine.js:490-639](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L490-L639)
 - [nl2sqlEngine.js:516-527](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L516-L527)
+
+### 长期记忆模块分析
+
+**新增**长期记忆模块是系统的重要创新，实现了用户偏好的智能学习和管理：
+
+#### 核心功能架构
+
+```mermaid
+classDiagram
+class LongTermMemory {
++extractAndStorePreferences(userId, intent, query, options) Promise~Object~
++learnFieldAlias(userId, userTerm, schemaField, fieldType) Promise~Object~
++getUserPreferencesForIntent(userId) Promise~Object~
++findSimilarTemplates(userId, currentIntent) Promise~Array~
++extractMappingsFromText(userId, text) Promise~Object~
++storeQueryTemplate(userId, template) Promise~Object~
++deletePreference(preferenceId) Promise~boolean~
+}
+class PreferenceTypes {
+<<enumeration>>
+FIELD_ALIAS
+QUERY_PATTERN
+METRIC_PREFERENCE
+DIMENSION_PREFERENCE
+}
+class StorageThresholds {
+<<enumeration>>
+MIN_CONFIDENCE
+MIN_DIMENSIONS_FOR_TEMPLATE
+MIN_METRICS_FOR_TEMPLATE
+RECENT_DAYS_FOR_FREQUENCY
+MIN_FREQUENCY_FOR_SIMPLE
+}
+LongTermMemory --> PreferenceTypes : "使用"
+LongTermMemory --> StorageThresholds : "使用"
+```
+
+**图表来源**
+- [longTermMemory.js:311-484](file://NL2SQL/backend/src/memory/longTermMemory.js#L311-L484)
+- [longTermMemory.js:36-41](file://NL2SQL/backend/src/memory/longTermMemory.js#L36-L41)
+
+#### 智能偏好提取
+
+长期记忆模块实现了多层级的偏好提取机制：
+
+1. **LLM智能分析**：使用LLM判断查询价值和提取个人偏好
+2. **逻辑判断筛选**：基于配置阈值进行智能筛选
+3. **存储策略**：区分字段别名、查询模式、指标偏好和维度偏好
+4. **即时学习**：支持澄清轮中的映射关系学习
+
+**章节来源**
+- [longTermMemory.js:56-188](file://NL2SQL/backend/src/memory/longTermMemory.js#L56-L188)
+- [longTermMemory.js:251-295](file://NL2SQL/backend/src/memory/longTermMemory.js#L251-L295)
+- [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
+
+### 记忆维护模块分析
+
+**新增**记忆维护模块负责长期记忆的生命周期管理：
+
+#### 清理策略
+
+```mermaid
+graph LR
+subgraph "记忆清理策略"
+High[高频偏好<br/>≥10次<br/>永久保留]
+Medium[中频偏好<br/>3-9次<br/>90天未用清理]
+Low[低频偏好<br/><3次<br/>30天未用清理]
+Alias[字段别名<br/>365天未用清理]
+End([清理完成])
+end
+High --> End
+Medium --> End
+Low --> End
+Alias --> End
+```
+
+**图表来源**
+- [memoryMaintenance.js:69-189](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L69-L189)
+
+#### 相似模式合并
+
+记忆维护模块实现了智能的相似模式合并功能：
+
+1. **相似度计算**：基于维度重合度和指标重合度判断
+2. **模式合并**：自动合并高度相似的查询模式
+3. **使用次数合并**：合并后累加使用次数
+4. **统计报告**：提供系统记忆健康报告
+
+**章节来源**
+- [memoryMaintenance.js:201-309](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L201-L309)
+- [memoryMaintenance.js:315-395](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L315-L395)
 
 ### LLM服务架构
 
@@ -541,8 +672,17 @@ datetime last_used_at
 datetime created_at
 datetime updated_at
 }
+SYSTEM_LOGS {
+integer id PK
+string level
+string message
+string source
+text metadata
+datetime created_at
+}
 SESSIONS ||--o{ MESSAGES : "包含"
 SESSIONS ||--o{ QUERY_HISTORY : "包含"
+USER_PREFERENCES ||--o{ QUERY_HISTORY : "关联"
 ```
 
 **图表来源**
@@ -618,6 +758,7 @@ end
 subgraph "前端组件"
 CV[ChatView.vue]
 MR[MarkdownRenderer]
+MV[MemoryView.vue]
 end
 MD --> SH
 MD --> ME
@@ -627,11 +768,13 @@ MR --> SH
 MR --> ME
 MR --> KA
 CV --> MR
+MV --> MR
 ```
 
 **图表来源**
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 - [ChatView.vue:223-238](file://NL2SQL/frontend/src/views/ChatView.vue#L223-L238)
+- [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
 
 #### 功能特性
 
@@ -645,6 +788,50 @@ CV --> MR
 - [markdownRenderer.js:74-100](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L74-L100)
 - [markdownRenderer.js:156-170](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L156-L170)
 - [ChatView.vue:35-51](file://NL2SQL/frontend/src/views/ChatView.vue#L35-L51)
+
+### 前端记忆管理视图
+
+**新增**MemoryView组件提供用户偏好可视化管理：
+
+#### 视图功能
+
+```mermaid
+graph TB
+subgraph "记忆管理视图"
+Header[头部区域<br/>用户ID选择]
+Stats[统计卡片<br/>总记录数、各类偏好数量]
+Filter[类型筛选<br/>字段别名、查询模式、常用指标、常用维度]
+FieldAlias[字段别名表格<br/>用户术语、映射类型、目标值、使用次数]
+QueryPattern[查询模式表格<br/>模式名称、维度、指标、使用次数]
+MetricPref[常用指标表格<br/>指标名称、使用次数]
+DimensionPref[常用维度表格<br/>维度名称、使用次数]
+JsonViewer[原始数据查看<br/>JSON格式显示]
+end
+Header --> Stats
+Stats --> Filter
+Filter --> FieldAlias
+Filter --> QueryPattern
+Filter --> MetricPref
+Filter --> DimensionPref
+FieldAlias --> JsonViewer
+QueryPattern --> JsonViewer
+MetricPref --> JsonViewer
+DimensionPref --> JsonViewer
+```
+
+**图表来源**
+- [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
+
+#### 管理功能
+
+1. **用户选择**：支持按用户ID加载记忆数据
+2. **类型筛选**：按偏好类型查看和管理
+3. **删除功能**：支持删除单条或多条偏好记录
+4. **统计展示**：提供各类偏好的数量统计
+5. **原始数据**：支持JSON格式查看原始数据
+
+**章节来源**
+- [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
 
 ## 依赖关系分析
 
@@ -675,6 +862,8 @@ IM8[WebSocket处理]
 IM9[API路由]
 IM10[实体解析]
 IM11[Markdown渲染]
+IM12[长期记忆]
+IM13[记忆维护]
 end
 EX1 --> IM9
 EX2 --> IM8
@@ -695,11 +884,17 @@ IM1 --> IM8
 IM1 --> IM9
 IM1 --> IM10
 IM1 --> IM11
+IM1 --> IM12
+IM1 --> IM13
 IM9 --> IM7
 IM8 --> IM7
 IM7 --> IM5
 IM7 --> IM6
 IM7 --> IM10
+IM7 --> IM12
+IM12 --> IM13
+IM12 --> IM3
+IM12 --> IM4
 IM5 --> IM4
 IM5 --> IM3
 IM11 --> IM7
@@ -718,6 +913,7 @@ IM11 --> IM7
 3. **数据层抽象**：数据库和向量存储提供统一接口
 4. **服务层封装**：LLM服务和Schema服务提供标准化接口
 5. **渲染层集成**：前端组件依赖Markdown渲染系统
+6. **记忆层集成**：长期记忆模块深度集成到核心流程
 
 **章节来源**
 - [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
@@ -734,6 +930,7 @@ IM11 --> IM7
 3. **会话缓存**：近期会话消息缓存
 4. **LLM缓存**：常用查询结果缓存
 5. **实体缓存**：实体映射结果缓存
+6. **偏好缓存**：用户偏好查询缓存
 
 ### 并发处理
 
@@ -742,6 +939,7 @@ IM11 --> IM7
 3. **异步处理**：非阻塞I/O操作
 4. **超时控制**：防止资源泄漏
 5. **渲染优化**：异步Markdown渲染避免UI阻塞
+6. **记忆异步存储**：长期记忆提取采用异步方式
 
 ### 内存管理
 
@@ -750,6 +948,7 @@ IM11 --> IM7
 3. **连接复用**：减少连接创建开销
 4. **批量操作**：数据库批量处理
 5. **渲染节流**：避免频繁的DOM更新
+6. **记忆压缩**：定期清理低价值偏好
 
 ## 故障排除指南
 
@@ -819,7 +1018,39 @@ IM11 --> IM7
 - 增加连接数限制
 - 清理消息队列
 
-#### 5. 实体解析问题
+#### 5. 长期记忆问题
+
+**症状**：用户偏好无法正确学习或存储
+
+**排查步骤**：
+1. 检查长期记忆配置
+2. 验证用户ID有效性
+3. 查看偏好类型配置
+4. 检查数据库连接
+
+**解决方法**：
+- 更新长期记忆配置
+- 确认用户ID格式
+- 验证偏好类型设置
+- 修复数据库连接
+
+#### 6. 记忆维护问题
+
+**症状**：记忆清理或合并功能异常
+
+**排查步骤**：
+1. 检查清理规则配置
+2. 验证用户偏好数据
+3. 查看日志错误信息
+4. 检查数据库索引
+
+**解决方法**：
+- 更新清理规则配置
+- 清理异常偏好数据
+- 检查数据库索引完整性
+- 重启记忆维护服务
+
+#### 7. 实体解析问题
 
 **症状**：模糊描述无法映射到具体ID
 
@@ -835,7 +1066,7 @@ IM11 --> IM7
 - 检查实体表结构
 - 增加实体映射规则
 
-#### 6. Markdown渲染问题
+#### 8. Markdown渲染问题
 
 **症状**：Markdown内容显示异常
 
@@ -850,6 +1081,22 @@ IM11 --> IM7
 - 检查Mermaid配置
 - 更新KaTeX版本
 - 修复CSS样式冲突
+
+#### 9. 记忆管理视图问题
+
+**症状**：记忆数据无法正确显示或删除
+
+**排查步骤**：
+1. 检查API接口状态
+2. 验证用户ID格式
+3. 查看前端错误信息
+4. 检查网络请求
+
+**解决方法**：
+- 修复API接口问题
+- 验证用户ID格式
+- 检查前端错误日志
+- 重新发起网络请求
 
 ### 日志分析
 
@@ -888,8 +1135,10 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 2. **技术栈**：使用成熟稳定的技术栈
 3. **扩展性**：良好的模块化设计便于功能扩展
 4. **性能**：多层缓存和优化机制保证性能
-5. **智能化**：新增实体解析和上下文理解能力
+5. **智能化**：新增长期记忆和上下文理解能力
 6. **用户体验**：集成Markdown渲染提供丰富展示
+7. **记忆管理**：完整的用户偏好学习和管理
+8. **自动化维护**：智能清理和相似模式合并
 
 ### 功能特色
 
@@ -900,6 +1149,9 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 5. **实体映射**：模糊描述到具体ID的智能解析
 6. **上下文理解**：深度融合对话历史的智能分析
 7. **富文本展示**：Markdown渲染提供美观界面
+8. **长期记忆**：智能学习用户偏好和查询模式
+9. **记忆维护**：自动清理和相似模式合并
+10. **偏好管理**：完整的用户偏好可视化界面
 
 ### 应用价值
 
@@ -914,5 +1166,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 扩展多语言支持
 - 集成更多图表类型
 - 增强实体解析准确性
+- 实现记忆共享功能
+- 增加记忆导入导出
+- 支持团队协作记忆
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

@@ -394,31 +394,108 @@ function getRelatedTables(tableName) {
 // ============================================
 
 /**
- * 搜索相关表
- * 根据查询文本，返回可能相关的表
+ * 根据game_id推断平台类型
+ * @param {string|number} gameId - 游戏ID
+ * @returns {string|null} - 平台类型: 'old'|'new'|null
+ */
+function inferPlatformByGameId(gameId) {
+  const oldPlatformGameIds = ['8', '9', '66', '67'];
+  if (oldPlatformGameIds.includes(String(gameId))) {
+    return 'old';
+  }
+  return 'new';
+}
+
+/**
+ * 搜索相关表（增强版：支持根据game_id和datasource智能匹配）
+ * 根据查询文本和上下文信息，返回可能相关的表
  * 
  * @param {string} query - 查询文本
  * @param {number} topK - 返回结果数量
+ * @param {Object} context - 上下文信息（可选）
+ * @param {string} context.gameId - 游戏ID
+ * @param {string} context.datasource - 数据源标识（如 new_tzpingtaiold）
  * @returns {Promise<Array>} 相关表列表
  */
-async function searchRelevantTables(query, topK = 5) {
+async function searchRelevantTables(query, topK = 5, context = {}) {
+  let enhancedQuery = query;
+  
+  // 根据上下文增强查询文本
+  if (context) {
+    const { gameId, datasource } = context;
+    
+    // 如果有明确的datasource，添加到查询中
+    if (datasource) {
+      enhancedQuery += ` ${datasource}`;
+    }
+    
+    // 如果有gameId，推断平台类型并增强查询
+    if (gameId) {
+      const platformType = inferPlatformByGameId(gameId);
+      if (platformType === 'old') {
+        enhancedQuery += ' 老平台 new_tzpingtaiold';
+      } else {
+        enhancedQuery += ' 新平台 new_tzpingtai';
+      }
+    }
+  }
+  
   // 如果向量存储已初始化，使用语义搜索
   if (vectorStore.isInitialized()) {
     try {
       // 获取查询文本的Embedding
-      const queryEmbedding = await llmService.getEmbedding(query);
+      const queryEmbedding = await llmService.getEmbedding(enhancedQuery);
       // 在向量数据库中搜索
-      const results = await vectorStore.searchSchema(queryEmbedding, topK);
+      const results = await vectorStore.searchSchema(queryEmbedding, topK * 2); // 搜索更多结果用于过滤
       
       // 提取表名并去重
-      const tableNames = [...new Set(
+      let tableNames = [...new Set(
         results
           .filter(r => r.metadata.type === 'table')
           .map(r => r.metadata.name)
       )];
       
-      // 获取完整的表定义
-      return tableNames.map(name => getTable(name)).filter(Boolean);
+      // 如果有datasource上下文，优先匹配对应数据库的表
+      if (context?.datasource) {
+        const prioritized = [];
+        const others = [];
+        
+        for (const name of tableNames) {
+          if (name.startsWith(context.datasource)) {
+            prioritized.push(name);
+          } else {
+            others.push(name);
+          }
+        }
+        
+        // 优先返回匹配datasource的表
+        tableNames = [...prioritized, ...others];
+      }
+      
+      // 如果有gameId且推断为老平台，优先匹配new_tzpingtaiold的表
+      if (context?.gameId && !context?.datasource) {
+        const platformType = inferPlatformByGameId(context.gameId);
+        const prioritized = [];
+        const others = [];
+        
+        for (const name of tableNames) {
+          const isOldPlatformTable = name.startsWith('new_tzpingtaiold');
+          const isNewPlatformTable = name.startsWith('new_tzpingtai') && !name.startsWith('new_tzpingtaiold');
+          
+          if (platformType === 'old' && isOldPlatformTable) {
+            prioritized.push(name);
+          } else if (platformType === 'new' && isNewPlatformTable) {
+            prioritized.push(name);
+          } else {
+            others.push(name);
+          }
+        }
+        
+        tableNames = [...prioritized, ...others];
+      }
+      
+      // 获取完整的表定义并限制数量
+      return tableNames.slice(0, topK).map(name => getTable(name)).filter(Boolean);
     } catch (error) {
       logger.error('语义搜索表失败:', error);
       // 语义搜索失败，回退到关键词匹配
@@ -426,7 +503,7 @@ async function searchRelevantTables(query, topK = 5) {
   }
   
   // 回退：使用关键词匹配
-  return keywordMatchTables(query);
+  return keywordMatchTables(enhancedQuery);
 }
 
 /**

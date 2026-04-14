@@ -295,6 +295,188 @@ async function resolveEntitiesInIntent(intent, userQuery, userId) {
   }
 }
 
+/**
+ * 平台术语解析 - 从查询中识别"新平台"/"老平台"并映射到数据库标识
+ * 
+ * @param {Object} intent - 当前意图对象
+ * @param {string} userQuery - 用户查询
+ * @param {string} userId - 用户ID
+ */
+async function resolvePlatformInIntent(intent, userQuery, userId) {
+  try {
+    const queryLower = userQuery.toLowerCase();
+    
+    // 1. 从长期记忆加载用户学习的datasource映射
+    if (userId) {
+      try {
+        const longTermMemory = require('../memory/longTermMemory');
+        const userPrefs = await longTermMemory.getUserPreferences(userId);
+        const fieldAliases = userPrefs.filter(p => p.preference_type === 'field_alias');
+        
+        // 查找datasource类型的映射
+        for (const alias of fieldAliases) {
+          const content = typeof alias.content === 'string' ? JSON.parse(alias.content) : alias.content;
+          
+          if (content.field_type === 'datasource' && content.user_term && content.schema_field) {
+            // 检查用户查询中是否包含这个术语
+            if (queryLower.includes(content.user_term.toLowerCase())) {
+              logger.info(`[平台解析] ✅ 使用长期记忆映射: ${content.user_term} -> datasource=${content.schema_field}`);
+              
+              if (!intent.filters) {
+                intent.filters = [];
+              }
+              
+              // 检查是否已存在datasource filter
+              const existingFilter = intent.filters.find(f => f.field === 'datasource');
+              if (!existingFilter) {
+                intent.filters.push({
+                  field: 'datasource',
+                  op: '=',
+                  value: content.schema_field,
+                  original_name: content.user_term
+                });
+              }
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        logger.debug('[平台解析] 加载用户datasource映射失败:', e.message);
+      }
+    }
+    
+    // 2. 硬编码兜底：识别常见平台术语
+    const platformMappings = [
+      { term: '老平台', datasource: 'new_tzpingtaiold' },
+      { term: '新平台', datasource: 'new_tzpingtai' }
+    ];
+    
+    for (const mapping of platformMappings) {
+      if (queryLower.includes(mapping.term)) {
+        logger.info(`[平台解析] ✅ 使用硬编码映射: ${mapping.term} -> datasource=${mapping.datasource}`);
+        
+        if (!intent.filters) {
+          intent.filters = [];
+        }
+        
+        // 检查是否已存在datasource filter
+        const existingFilter = intent.filters.find(f => f.field === 'datasource');
+        if (!existingFilter) {
+          intent.filters.push({
+            field: 'datasource',
+            op: '=',
+            value: mapping.datasource,
+            original_name: mapping.term
+          });
+        }
+        return;
+      }
+    }
+    
+  } catch (error) {
+    logger.error('[平台解析] 解析失败:', error);
+  }
+}
+
+function getDialogueSummary(history = [], limit = 6) {
+  if (!Array.isArray(history) || history.length === 0) {
+    return '';
+  }
+
+  return history
+    .slice(-limit)
+    .map(item => {
+      const roleLabel = item.role === 'user' ? '用户' : '助手';
+      const typeLabel = item.type ? `(${item.type})` : '';
+      return `${roleLabel}${typeLabel}: ${item.content}`;
+    })
+    .join('\n');
+}
+
+function isAffirmativeClarificationReply(text = '') {
+  const normalized = String(text).replace(/\s+/g, '').trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const exactMatches = new Set([
+    '是', '是的', '对', '对的', '好的', '好', 'ok', 'okay',
+    '确认', '确认了', '都确认', '都确认了', '按默认', '就按默认',
+    '默认', '默认即可', '默认就行', '都按默认', '都可以', '都行', '没问题'
+  ]);
+
+  if (exactMatches.has(normalized)) {
+    return true;
+  }
+
+  return /^(是啊?|对啊?|好的?|确认了?|都确认了?|按默认(即可|就行)?|默认(即可|就行)?|都按默认)$/.test(normalized);
+}
+
+function extractDefaultOptionsFromClarification(text = '') {
+  if (!text) {
+    return [];
+  }
+
+  const defaults = new Set();
+  const defaultPattern = /([^\n：:，。,；;]+?)（默认）/g;
+  let match;
+
+  while ((match = defaultPattern.exec(text)) !== null) {
+    const option = match[1]
+      .replace(/^选项[:：]\s*/, '')
+      .replace(/[，。；;:：]\s*$/, '')
+      .trim();
+
+    if (option) {
+      defaults.add(option);
+    }
+  }
+
+  return [...defaults];
+}
+
+function enrichIntentWithClarificationContext(intent, userQuery, history = []) {
+  const lastAssistantMsg = [...history].reverse().find(item => item.role === 'assistant');
+
+  if (!lastAssistantMsg || lastAssistantMsg.type !== 'clarify') {
+    return intent;
+  }
+
+  const isAffirmative = isAffirmativeClarificationReply(userQuery);
+  const confirmedDefaults = isAffirmative
+    ? extractDefaultOptionsFromClarification(lastAssistantMsg.content)
+    : [];
+  const contextLines = [
+    `上一轮澄清问题: ${lastAssistantMsg.content}`,
+    isAffirmative
+      ? '用户已明确确认沿用上一轮澄清问题中的默认选项或推荐选项。'
+      : `用户针对上一轮澄清的补充回答: ${userQuery}`
+  ];
+
+  if (confirmedDefaults.length > 0) {
+    contextLines.push(`本轮按默认确认的选项: ${confirmedDefaults.join('；')}`);
+  }
+
+  const extraContext = contextLines.join('\n');
+
+  if (!intent.supplement_info) {
+    intent.supplement_info = extraContext;
+  } else if (!intent.supplement_info.includes(extraContext)) {
+    intent.supplement_info += `\n${extraContext}`;
+  }
+
+  intent.clarification_context = {
+    question: lastAssistantMsg.content,
+    reply: userQuery,
+    answerType: isAffirmative ? 'confirm_default' : 'supplement',
+    confirmedDefaults,
+    confirmedSlots: isAffirmative ? (lastAssistantMsg.metadata?.missingSlots || []) : []
+  };
+
+  return intent;
+}
+
 // ============================================
 // 意图识别
 // ============================================
@@ -350,14 +532,37 @@ ${userPreferences.patterns.slice(0, 3).map(p =>
 
 字段别名映射（用户说法 → 实际值）:
 ${userPreferences.aliases.slice(0, 5).map(a => {
+  // 游戏类型映射（双记录格式：青木 -> game_id, 青木_value -> 30）
+  if (a.field_type === 'game') {
+    // 查找对应的值映射（青木_value -> 30）
+    const valueAlias = userPreferences.aliases.find(va => 
+      va.user_term === `${a.user_term}_value` && !isNaN(Number(va.schema_field))
+    );
+    if (valueAlias) {
+      return `- "${a.user_term}" 对应 game_id = ${valueAlias.schema_field}`;
+    }
+    return `- "${a.user_term}" 对应 game_id（值未知）`;
+  }
+  // 跳过值映射记录（已在上面处理）
+  if (a.field_type === 'game_value') {
+    return null;
+  }
+  // 数字型映射（直接存储ID值，如 华夏 -> 88）
   const isGameMapping = !isNaN(Number(a.schema_field));
   if (isGameMapping) {
     return `- "${a.user_term}" 对应 game_id = ${a.schema_field}`;
   }
+  // 数据源类型映射（如新平台 → new_tzpingtai）
+  if (a.field_type === 'datasource') {
+    return `- "${a.user_term}" 对应数据库标识: ${a.schema_field}`;
+  }
   return `- "${a.user_term}" → ${a.schema_field}`;
-}).join('\n')}
+}).filter(Boolean).join('\n')}
 
-重要：当用户提到上述游戏名称时，必须在 filters 中使用对应的 game_id，不要虚构其他字段如 database_identifier。
+重要：
+1. 当用户提到上述游戏名称时，必须在 filters 中使用对应的 game_id，不要虚构其他字段如 database_identifier。
+2. 当用户提到"新平台"或"老平台"时，直接使用对应的数据库标识（new_tzpingtai/new_tzpingtaiold），不要追问平台标识。
+3. **强制规则**：如果"字段别名映射"中已包含某游戏名称对应的game_id，直接在filters中使用该game_id，置信度设为0.95，不要询问用户确认。
 
 常用指标: ${userPreferences.metrics.slice(0, 5).join(', ')}
 常用维度: ${userPreferences.dimensions.slice(0, 5).join(', ')}
@@ -444,6 +649,7 @@ ${similarQueriesSummary}
 3. **isContextualQuery**: 如果当前查询依赖上下文才能理解（如"那上个月呢？"），设为true
 4. **metrics字段**: 基于当前查询+上下文提到的具体指标识别
 5. **利用历史偏好**：如果用户有历史偏好，优先使用其习惯的维度和指标组合
+6. **直接使用已学习的映射**：如果"字段别名映射"中已包含游戏名称对应的game_id，直接在filters中使用，confidence设为0.95，不要生成澄清问题
 
 ## 字段别名参考（用户说法 → Schema字段映射）
 
@@ -547,6 +753,9 @@ ${similarQueriesSummary}
     // 实体解析：尝试从查询中提取游戏/渠道名称并解析为ID
     await resolveEntitiesInIntent(intent, userQuery, userId);
     
+    // 平台术语识别：从查询或长期记忆中识别"新平台"/"老平台"
+    await resolvePlatformInIntent(intent, userQuery, userId);
+    
     logger.info('意图分析完成', { 
       query: userQuery,
       metrics: intent.metrics,
@@ -634,6 +843,7 @@ async function updateIntentWithLLM(previousIntent, newQuery, history) {
   });
 
   const schemaSummary = schemaLoader.getSchemaSummary();
+  const dialogueSummary = getDialogueSummary(history, 6);
 
   const systemPrompt = `你是一位意图理解专家。你的任务是根据用户的新输入，更新当前的查询意图。
 
@@ -641,6 +851,9 @@ async function updateIntentWithLLM(previousIntent, newQuery, history) {
 ${JSON.stringify(previousIntent, null, 2)}
 
 用户最新输入: "${newQuery}"
+
+最近对话历史（重点参考，尤其是上一轮澄清问题与默认选项）:
+${dialogueSummary || '无'}
 
 数据库Schema概览:
 ${schemaSummary}
@@ -650,6 +863,8 @@ ${schemaSummary}
 2. 如果是补充：将新信息合并到当前意图
 3. 如果是修改：用新需求替换相关字段
 4. 如果是完全新的查询：创建新意图
+5. 如果用户最新输入只是“是 / 对 / 都确认 / 按默认”等简短肯定答复，且上一轮助手在澄清问题中提供了默认或推荐选项，则视为用户确认采用这些默认/推荐选项，不要再次追问同一问题
+6. 如果上一轮助手已经给出了具体候选表、字段、口径或默认值，必须结合上一轮澄清内容理解当前回复，不能把“是”“都确认”当成无意义的新查询
 
 返回更新后的完整意图JSON:
 {
@@ -700,11 +915,13 @@ updateType说明:
  * @param {Object} intent - 意图分析结果
  * @returns {Object} {complete: boolean, missing: Array}
  */
-function checkIntentComplete(intent) {
+function checkIntentComplete(intent, history = []) {
   // 定义必要字段
   const requiredFields = ['time_range', 'metrics'];
   // 存储缺失的字段
   const missing = [];
+  // 【P2】待确认项检查
+  const pendingConfirmations = [];
   
   // 检查每个必要字段
   for (const field of requiredFields) {
@@ -719,11 +936,74 @@ function checkIntentComplete(intent) {
     missing.push('confidence');
   }
   
+  // 【P2】检查上一轮是否有待确认项
+  const clarificationContext = intent.clarification_context;
+  const skipPendingConfirmationCheck = clarificationContext?.answerType === 'confirm_default' &&
+    Array.isArray(clarificationContext?.confirmedSlots) &&
+    clarificationContext.confirmedSlots.length > 0;
+
+  const lastAssistantMsg = [...history].reverse().find(h => h.role === 'assistant');
+  if (!skipPendingConfirmationCheck && lastAssistantMsg?.type === 'clarify' && lastAssistantMsg?.metadata?.missingSlots) {
+    const lastMissingSlots = lastAssistantMsg.metadata.missingSlots;
+    
+    // 检查这些待确认项是否在当前意图中已解决
+    for (const slot of lastMissingSlots) {
+      let isResolved = false;
+      
+      switch (slot) {
+        case 'game_id':
+          isResolved = intent.filters?.some(f => f.field === 'game_id');
+          break;
+        case 'table_name':
+          // 如果SQL生成阶段没报错，认为表名已解决
+          isResolved = true; // 由SQL生成阶段判断
+          break;
+        case 'time_range':
+          isResolved = !!intent.time_range;
+          break;
+        case 'metrics':
+          isResolved = intent.metrics?.length > 0;
+          break;
+        default:
+          // 【修复】其他字段检查filters，支持动态槽位如 platform_identifier
+          isResolved = intent.filters?.some(f => f.field === slot);
+          // 如果filters中没有，检查是否在原始查询或补充信息中提到了
+          if (!isResolved && intent.original_query) {
+            const queryLower = intent.original_query.toLowerCase();
+            // 简单的启发式检查：如果槽位名在查询中被提及，认为已解决
+            if (queryLower.includes(slot.toLowerCase()) || 
+                queryLower.includes(slot.replace('_', '').toLowerCase())) {
+              isResolved = true;
+            }
+          }
+          // 检查补充信息中是否包含该槽位
+          if (!isResolved && intent.supplement_info) {
+            const supplementLower = intent.supplement_info.toLowerCase();
+            if (supplementLower.includes(slot.toLowerCase()) ||
+                supplementLower.includes(slot.replace('_', '').toLowerCase())) {
+              isResolved = true;
+            }
+          }
+      }
+      
+      if (!isResolved) {
+        pendingConfirmations.push(slot);
+      }
+    }
+    
+    // 如果有待确认项未解决，加入missing
+    if (pendingConfirmations.length > 0) {
+      missing.push(...pendingConfirmations.filter(m => !missing.includes(m)));
+    }
+  }
+  
   return {
     // 如果没有缺失字段且置信度足够，认为完整
     complete: missing.length === 0,
     // 返回缺失的字段列表
-    missing: missing
+    missing: missing,
+    // 【P2】返回待确认项详情
+    pendingConfirmations: pendingConfirmations
   };
 }
 
@@ -733,7 +1013,7 @@ function checkIntentComplete(intent) {
  * 
  * @param {Object} intent - 意图分析结果
  * @param {Array} missing - 缺失的字段列表
- * @returns {Promise<string>} 澄清问题文本
+ * @returns {Promise<Object>} {question: string, missingSlots: Array}
  */
 async function generateClarification(intent, missing) {
   // 构造提示词
@@ -744,22 +1024,50 @@ ${JSON.stringify(intent, null, 2)}
 
 缺失的信息: ${missing.join(', ')}
 
-请生成一个友好的澄清问题，询问用户缺失的信息。问题应该：
-1. 简洁明了
-2. 提供选项帮助用户快速回答
-3. 保持上下文连贯
+请生成一个友好的澄清问题，询问用户缺失的信息。同时，请分析需要用户确认的具体槽位（slots）。
 
-直接返回问题文本，不要其他解释。`;
+要求：
+1. 问题应该简洁明了，提供选项帮助用户快速回答
+2. 保持上下文连贯
+3. 必须返回JSON格式，包含澄清问题和结构化槽位信息
+
+返回格式：
+{
+  "question": "澄清问题文本",
+  "missingSlots": ["slot1", "slot2"],
+  "slotDescriptions": {
+    "slot1": "该槽位的简要说明"
+  }
+}
+
+注意：missingSlots 必须包含所有需要用户确认的业务槽位，例如：
+- 如果需要game_id，包含 "game_id"
+- 如果需要平台信息，包含 "platform" 或 "platform_identifier"
+- 如果需要时间范围确认，包含 "time_range"`;
 
   try {
     // 调用LLM生成澄清问题
-    const question = await llmService.simpleChat(prompt);
-    logger.debug('生成澄清问题', { question });
-    return question.trim();
+    const response = await llmService.simpleChat(prompt);
+    const result = parseJSONResponse(response);
+    
+    logger.debug('生成澄清问题', { 
+      question: result.question,
+      missingSlots: result.missingSlots 
+    });
+    
+    return {
+      question: result.question || response.trim(),
+      missingSlots: result.missingSlots || missing,
+      slotDescriptions: result.slotDescriptions || {}
+    };
   } catch (error) {
     logger.error('生成澄清问题失败:', error);
     // 返回默认澄清问题
-    return '请提供更多查询细节，例如时间范围、关注的指标等。';
+    return {
+      question: '请提供更多查询细节，例如时间范围、关注的指标等。',
+      missingSlots: missing,
+      slotDescriptions: {}
+    };
   }
 }
 
@@ -779,10 +1087,25 @@ async function generateSQL(intent, history = [], userId = null) {
   // 记录开始生成日志
   logger.debug('开始生成SQL', { intent, userId });
   
-  // 搜索相关表
+  // 从intent中提取game_id和datasource信息
+  const context = {};
+  if (intent.filters) {
+    const gameIdFilter = intent.filters.find(f => f.field === 'game_id');
+    if (gameIdFilter) {
+      context.gameId = gameIdFilter.value;
+    }
+    
+    const datasourceFilter = intent.filters.find(f => f.field === 'datasource');
+    if (datasourceFilter) {
+      context.datasource = datasourceFilter.value;
+    }
+  }
+  
+  // 搜索相关表（传入上下文进行智能匹配）
   const relevantTables = await schemaLoader.searchRelevantTables(
     intent.original_query, 
-    5
+    5,
+    context
   );
   
   // 获取相关表的详细Schema
@@ -801,17 +1124,46 @@ async function generateSQL(intent, history = [], userId = null) {
     return m;
   }).join('\n');
   
-  // 从历史对话中提取已澄清的信息（如 game_id=30）
   let clarifiedInfo = '';
   if (history.length > 0) {
-    // 提取用户确认过的关键信息
-    const clarifications = history
-      .filter(h => h.role === 'user' && (h.content.includes('id') || h.content.includes('是') || h.content.includes('对')))
-      .slice(-3);
-    if (clarifications.length > 0) {
-      clarifiedInfo = '\n已确认的信息（来自历史对话）:\n' + 
-        clarifications.map(h => `- ${h.content}`).join('\n');
+    const clarificationPairs = [];
+
+    for (let i = 0; i < history.length - 1; i++) {
+      const current = history[i];
+      const next = history[i + 1];
+
+      if (current.role === 'assistant' && current.type === 'clarify' && next?.role === 'user') {
+        clarificationPairs.push({
+          question: current.content,
+          answer: next.content
+        });
+      }
     }
+
+    const pairLines = clarificationPairs.slice(-3).map(item =>
+      `- 助手澄清: ${item.question}\n  用户回复: ${item.answer}`
+    );
+
+    const standaloneClarifications = history
+      .filter(h => h.role === 'user' && (
+        h.content.includes('id') ||
+        h.content.includes('是') ||
+        h.content.includes('对') ||
+        h.content.includes('确认') ||
+        h.content.includes('默认')
+      ))
+      .slice(-3)
+      .map(h => `- 用户补充: ${h.content}`);
+
+    const clarificationLines = [...pairLines, ...standaloneClarifications];
+
+    if (clarificationLines.length > 0) {
+      clarifiedInfo = '\n已确认的信息（来自历史对话）:\n' + clarificationLines.join('\n');
+    }
+  }
+
+  if (intent.clarification_context?.answerType === 'confirm_default' && intent.clarification_context.confirmedDefaults?.length > 0) {
+    clarifiedInfo += `\n本轮用户确认采用上一轮默认选项:\n- ${intent.clarification_context.confirmedDefaults.join('\n- ')}`;
   }
   
   // 从长期记忆加载用户学习的字段别名
@@ -826,11 +1178,17 @@ async function generateSQL(intent, history = [], userId = null) {
         fieldAliasesInfo = '\n用户定义的字段别名（重要，必须遵守）:\n';
         for (const alias of fieldAliases) {
           const content = typeof alias.content === 'string' ? JSON.parse(alias.content) : alias.content;
-          // 判断是否是游戏ID映射（值是纯数字）
-          const isGameIdMapping = !isNaN(Number(content.schema_field));
-          if (isGameIdMapping) {
+          
+          // 数据源类型映射（如新平台 → new_tzpingtai）
+          if (content.field_type === 'datasource') {
+            fieldAliasesInfo += `- 当用户说"${content.user_term}"时，指的是数据库标识: ${content.schema_field}，SQL中必须使用 FROM ${content.schema_field}.表名\n`;
+          }
+          // 游戏ID映射（值是纯数字）
+          else if (!isNaN(Number(content.schema_field))) {
             fieldAliasesInfo += `- 当用户说"${content.user_term}"时，指的是 game_id = ${content.schema_field}，SQL中必须使用 WHERE game_id = ${content.schema_field}\n`;
-          } else {
+          }
+          // 其他字段映射
+          else {
             fieldAliasesInfo += `- 当用户说"${content.user_term}"时，指的是字段: ${content.schema_field}\n`;
           }
         }
@@ -863,11 +1221,16 @@ SQL生成规则:
 7. 复杂的查询使用CTE（WITH子句）提高可读性
 8. 添加适当的注释说明
 
-智能推断规则（重要）：
-- 如果用户提供了更精确的标识符（如ID），优先使用并自动关联之前的模糊描述（如名称），直接生成SQL
-- 只有在存在逻辑冲突或无法合理推断时，才需要询问用户确认
-- 默认执行合理假设，不要事无巨细地确认
-- 例如：用户说"青木的游戏id是30"，应直接使用game_id=30，无需再次确认是否忽略"青木"
+【P3】严格约束 - 禁止越权猜测（重要）：
+- **禁止猜测表名**：如果意图中没有明确指定表名，且无法从指标定义中确定，必须返回 needClarification，禁止随意选择表
+- **禁止猜测 game_id**：如果用户提到游戏名称（如"华夏"、"青木"）但未提供 game_id，且长期记忆中也没有该映射，必须返回 needClarification，禁止猜测ID值
+- **禁止猜测时间范围**：如果意图中 time_range 为空或不明确，必须返回 needClarification，禁止默认使用"昨天"或"最近7天"
+- **禁止猜测字段含义**：如果不确定某个字段的业务含义（如status字段的具体值代表什么），必须返回 needClarification
+
+智能推断规则（仅在信息明确时）：
+- 如果用户提供了精确的标识符（如ID），优先使用并自动关联之前的模糊描述（如名称），直接生成SQL
+- 只有在**所有必要信息都已明确**且**无歧义**时，才生成SQL
+- 如果有任何不确定，必须返回 needClarification，并在 missingSlots 中列出所有缺失项
 
 意图中的 filters 字段（重要）：
 - intent.filters 数组中包含了已解析的筛选条件，格式为 [{"field": "game_id", "op": "=", "value": "30"}]
@@ -923,9 +1286,15 @@ SQL生成规则:
 返回格式（确实无法推断时）:
 {
   "needClarification": true,
-  "thought": "为什么无法推断",
-  "clarificationQuestion": "需要向用户确认的问题"
-}`;
+  "thought": "为什么无法推断，具体缺哪些信息",
+  "clarificationQuestion": "需要向用户确认的问题",
+  "missingSlots": ["缺失的信息项，如: game_id", "table_name", "time_range"]
+}
+
+重要：missingSlots 必须列出所有缺失的关键信息项，用于后续部分回答校验。例如：
+- 如果不知道用哪个表，包含 "table_name"
+- 如果不知道游戏ID，包含 "game_id"  
+- 如果时间不明确，包含 "time_range"`;
 
   // 构造用户提示词
   const userPrompt = `请根据以下意图生成SQL:
@@ -1181,6 +1550,11 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
     
     // 保存用户消息到会话
     await database.addMessage(sessionId, 'user', userQuery, 'text');
+    const historyWithCurrentUser = [...history, {
+      role: 'user',
+      content: userQuery,
+      type: 'text'
+    }];
     
     // ----------------------------------------
     // 步骤2.5: 检查是否是上下文查询，使用LLM智能更新意图
@@ -1222,15 +1596,18 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
       // 学习字段别名：如果用户在澄清中提供了实体映射，记录下来
       await learnEntityAliasFromContext(userId, userQuery, intent, lastAssistantMsg);
     }
+
+    intent = enrichIntentWithClarificationContext(intent, userQuery, history);
     
     // ----------------------------------------
     // 步骤3: 检查是否需要澄清
     // ----------------------------------------
-    const completeness = checkIntentComplete(intent);
+    const completeness = checkIntentComplete(intent, historyWithCurrentUser);
     
     logger.info('意图完整性检查', {
       isComplete: completeness.complete,
       missing: completeness.missing,
+      pendingConfirmations: completeness.pendingConfirmations,
       finalMetrics: intent.metrics,
       finalTimeRange: intent.time_range
     });
@@ -1258,20 +1635,20 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
       
       // 需要澄清，生成澄清问题
       sendProgress('clarifying', { message: '需要更多信息...' });
-      const clarification = await generateClarification(intent, completeness.missing);
+      const clarificationResult = await generateClarification(intent, completeness.missing);
       
       // 保存澄清消息
-      await database.addMessage(sessionId, 'assistant', clarification, 'clarify', {
+      await database.addMessage(sessionId, 'assistant', clarificationResult.question, 'clarify', {
         intent,
-        missing: completeness.missing
+        missingSlots: clarificationResult.missingSlots || completeness.missing
       });
       
       return {
         success: true,
         type: 'clarify',
-        message: clarification,
+        message: clarificationResult.question,
         intent,
-        missing: completeness.missing
+        missingSlots: clarificationResult.missingSlots || completeness.missing
       };
     }
     
@@ -1279,16 +1656,55 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
     // 步骤4: 生成SQL（利用历史对话中已澄清的信息和长期记忆）
     // ----------------------------------------
     sendProgress('generating', { message: '生成SQL查询...' });
-    const sqlResult = await generateSQL(intent, history, userId);
+    const sqlResult = await generateSQL(intent, historyWithCurrentUser, userId);
     
     // 检查是否需要澄清（大模型无法确定某些信息）
     if (sqlResult.needClarification) {
       sendProgress('clarifying', { message: '需要确认信息...' });
       
-      // 保存澄清消息
+      // 【P1】部分回答校验：检查上一轮是否也有 missingSlots
+      const lastAssistantMsg = [...history].reverse().find(h => h.role === 'assistant');
+      const isDefaultConfirmation = intent.clarification_context?.answerType === 'confirm_default';
+      const lastMissingSlots = isDefaultConfirmation ? [] : (lastAssistantMsg?.metadata?.missingSlots || []);
+      const currentMissingSlots = sqlResult.missingSlots || [];
+      
+      // 计算已回答和仍缺失的
+      const answeredSlots = lastMissingSlots.filter(slot => !currentMissingSlots.includes(slot));
+      const stillMissingSlots = currentMissingSlots;
+      
+      if (answeredSlots.length > 0 && stillMissingSlots.length > 0) {
+        // 部分回答：用户答了一些，但还有没答的
+        logger.info('[部分回答校验] 用户部分回答，继续追问剩余项', {
+          answered: answeredSlots,
+          stillMissing: stillMissingSlots
+        });
+        
+        const partialClarification = `已收到：${answeredSlots.join('、')}。\n还需要确认：${stillMissingSlots.join('、')}。\n\n${sqlResult.clarificationQuestion}`;
+        
+        // 保存澄清消息（带 missingSlots 用于下一轮校验）
+        await database.addMessage(sessionId, 'assistant', partialClarification, 'clarify', {
+          intent,
+          clarificationType: 'partial_answer',
+          missingSlots: stillMissingSlots,
+          answeredSlots: answeredSlots
+        });
+        
+        return {
+          success: true,
+          type: 'clarify',
+          message: partialClarification,
+          intent,
+          clarificationType: 'partial_answer',
+          missingSlots: stillMissingSlots,
+          answeredSlots: answeredSlots
+        };
+      }
+      
+      // 保存澄清消息（带 missingSlots）
       await database.addMessage(sessionId, 'assistant', sqlResult.clarificationQuestion, 'clarify', {
         intent,
-        clarificationType: 'schema_mismatch'
+        clarificationType: 'schema_mismatch',
+        missingSlots: currentMissingSlots
       });
       
       return {
@@ -1296,7 +1712,8 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
         type: 'clarify',
         message: sqlResult.clarificationQuestion,
         intent,
-        clarificationType: 'schema_mismatch'
+        clarificationType: 'schema_mismatch',
+        missingSlots: currentMissingSlots
       };
     }
     
