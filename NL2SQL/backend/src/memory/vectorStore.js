@@ -17,6 +17,8 @@ const lancedb = require('vectordb');
 const config = require('../core/config');
 // 导入日志模块
 const logger = require('../utils/logger');
+// 导入评估模块（用于运行时统计）
+const evaluation = require('../utils/evaluation');
 
 // ============================================
 // 元数据增强工具函数
@@ -388,7 +390,7 @@ async function searchSchema(queryVector, topK = 5) {
       .execute();
     
     // 解析结果
-    return results.map(row => ({
+    const parsedResults = results.map(row => ({
       // 文本内容
       text: row.text,
       // 向量距离（越小越相似）
@@ -396,6 +398,11 @@ async function searchSchema(queryVector, topK = 5) {
       // 解析元数据
       metadata: JSON.parse(row.metadata || '{}')
     }));
+    
+    // 记录统计（非阻塞，失败不影响主流程）
+    evaluation.recordVectorSearch('schema', parsedResults);
+    
+    return parsedResults;
     
   } catch (error) {
     logger.error('搜索Schema向量失败:', error);
@@ -467,12 +474,17 @@ async function searchSimilarQueries(queryVector, topK = 5) {
       .execute();
     
     // 解析结果
-    return results.map(row => ({
+    const parsedResults = results.map(row => ({
       id: row.id,
       text: row.text,
       distance: row._distance,
       metadata: JSON.parse(row.metadata || '{}')
     }));
+    
+    // 记录统计
+    evaluation.recordVectorSearch('query', parsedResults);
+    
+    return parsedResults;
     
   } catch (error) {
     logger.error('搜索相似查询失败:', error);

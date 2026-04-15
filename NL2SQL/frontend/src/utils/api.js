@@ -249,3 +249,54 @@ export function sendQuery(sessionId, query) {
     query: query
   })
 }
+
+// ============================================
+// 评估 API
+// ============================================
+
+/**
+ * 评估相关API
+ */
+export const evaluationApi = {
+  /**
+   * 获取运行时统计报告
+   * @returns {Promise<Object>} 统计报告
+   */
+  getStats() {
+    return apiClient.get('/evaluation/stats')
+  },
+
+  /**
+   * 重置统计数据
+   * @returns {Promise<Object>} 重置结果
+   */
+  resetStats() {
+    return apiClient.post('/evaluation/stats/reset')
+  },
+
+  /**
+   * 获取评估配置
+   * @returns {Promise<Object>} 配置信息
+   */
+  getConfig() {
+    return apiClient.get('/evaluation/config')
+  },
+
+  /**
+   * 执行Schema向量化质量评估
+   * @param {Array} testQueries - 自定义测试查询（可选）
+   * @returns {Promise<Object>} 评估结果
+   */
+  evaluateSchemaQuality(testQueries = null) {
+    return apiClient.post('/evaluation/schema-quality', testQueries ? { testQueries } : {})
+  },
+
+  /**
+   * 执行查询历史向量化质量评估
+   * @param {Array} testPairs - 自定义测试对（可选）
+   * @returns {Promise<Object>} 评估结果
+   */
+  evaluateQueryQuality(testPairs = null) {
+    return apiClient.post('/evaluation/query-quality', testPairs ? { testPairs } : {})
+  }
+}

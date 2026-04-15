@@ -57,6 +57,9 @@
         <el-tooltip content="长期记忆" placement="right">
           <el-button text :icon="Collection" @click="goToMemory" />
         </el-tooltip>
+        <el-tooltip content="系统评估" placement="right">
+          <el-button text :icon="TrendCharts" @click="goToEvaluation" />
+        </el-tooltip>
         <el-tooltip content="设置" placement="right">
           <el-button text :icon="Setting" />
         </el-tooltip>
@@ -104,7 +107,8 @@ import {
   Expand,
   DataLine,
   Delete,
-  Collection
+  Collection,
+  TrendCharts
 } from '@element-plus/icons-vue'
 // 导入Element Plus消息组件和确认框
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -156,6 +160,13 @@ function toggleSidebar() {
  */
 function goToMemory() {
   router.push('/memory')
+}
+
+/**
+ * 跳转到评估页面
+ */
+function goToEvaluation() {
+  router.push('/evaluation')
 }
 
 /**

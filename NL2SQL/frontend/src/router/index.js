@@ -88,6 +88,16 @@ const routes = [
     }
   },
   {
+    // 评估页面
+    path: '/evaluation',
+    name: 'evaluation',
+    component: () => import('../views/EvaluationView.vue'),
+    meta: {
+      title: '系统评估',
+      requiresSession: false
+    }
+  },
+  {
     // 404页面
     path: '/:pathMatch(.*)*',
     name: 'not-found',

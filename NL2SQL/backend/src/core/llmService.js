@@ -72,7 +72,7 @@ function httpPost(url, headers, body, stream = false, timeout = 60000) {
       timeout: timeout
     };
 
-    console.log("HTTP POST Options:", options);
+    // console.log("HTTP POST Options:", options);
     
     // 创建HTTP请求
     const req = httpModule.request(options, (res) => {

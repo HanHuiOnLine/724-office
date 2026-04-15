@@ -29,12 +29,12 @@
 
 ## 更新摘要
 **变更内容**
-- 新增智能上下文管理系统，集成动态令牌估算和预算控制
-- 新增tokenBudget.js模块，提供智能上下文修剪功能
-- 增强NL2SQL引擎，集成智能上下文管理和预算检查
-- 扩展向量存储功能，增强元数据管理和查询类型分类
-- 新增对话摘要机制，基于令牌预算的智能压缩
-- 增强平台术语解析系统，支持智能上下文理解
+- 新增紧凑Schema输出机制，显著减少Token消耗和处理时间
+- 优化表选择逻辑，提升Schema处理效率和准确性
+- 增强智能字段过滤功能，提供更精准的Schema信息
+- 完善令牌预算管理，确保系统稳定性
+- 扩展对话摘要机制，支持智能压缩和缓存
+- 优化向量存储元数据管理，提升检索质量
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -68,6 +68,8 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **多轮对话**：增强的澄清机制和上下文理解
 - **智能上下文管理**：动态令牌估算和预算控制
 - **对话摘要**：基于令牌预算的智能压缩机制
+- **紧凑Schema输出**：优化的Schema信息展示和处理
+- **智能字段过滤**：精准的Schema字段选择和展示
 
 ## 项目结构
 
@@ -101,6 +103,8 @@ BE13[澄清上下文增强]
 BE14[智能上下文管理系统]
 BE15[对话摘要机制]
 BE16[令牌预算管理]
+BE17[紧凑Schema输出]
+BE18[智能字段过滤]
 end
 subgraph "数据存储"
 DS1[SQLite数据库]
@@ -129,6 +133,8 @@ BE13 --> BE2
 BE14 --> BE2
 BE15 --> BE2
 BE16 --> BE2
+BE17 --> BE2
+BE18 --> BE2
 BE4 --> DS3
 BE5 --> DS1
 BE4 --> DS2
@@ -153,16 +159,16 @@ BE4 --> DS2
 系统的核心由以下关键组件构成：
 
 #### 1. NL2SQL引擎
-负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**智能上下文管理系统和增强的实体解析系统。
+负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**紧凑Schema输出机制和增强的智能字段过滤功能。
 
 #### 2. LLM服务
 封装与大型语言模型的交互，提供聊天、嵌入向量获取和重试机制。
 
 #### 3. Schema加载器
-管理数据库Schema元数据，提供Schema查询、匹配和验证功能。**增强**支持平台和数据源上下文的智能匹配。
+管理数据库Schema元数据，提供Schema查询、匹配和验证功能。**优化**表选择逻辑，支持智能上下文匹配和紧凑Schema输出。
 
 #### 4. 向量存储模块
-基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。**扩展**增强元数据管理和查询类型分类。
+基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。**增强**元数据管理和查询类型分类。
 
 #### 5. 数据库管理
 使用SQLite存储会话历史、消息记录、查询日志和用户偏好。
@@ -194,11 +200,17 @@ BE4 --> DS2
 #### 14. 令牌预算管理
 **新增**独立的tokenBudget.js模块，提供精确的上下文令牌估算和预算控制。
 
+#### 15. 紧凑Schema输出机制
+**新增**优化的Schema信息输出，只包含关键字段和相关信息，显著减少Token消耗。
+
+#### 16. 智能字段过滤功能
+**新增**基于查询意图的字段智能过滤，自动识别和展示相关字段。
+
 **章节来源**
 - [nl2sqlEngine.js:1-2010](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2010)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
-- [schemaLoader.js:1-751](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L751)
-- [vectorStore.js:1-442](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L442)
+- [schemaLoader.js:1-933](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L933)
+- [vectorStore.js:1-633](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L633)
 - [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
 - [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
 - [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
@@ -261,6 +273,8 @@ TB_ENDPOINT[令牌预算端点]
 SUM_ENDPOINT[对话摘要端点]
 ENDPOINT4[SQL生成增强端点]
 ENDPOINT5[Schema加载器增强端点]
+ENDPOINT6[紧凑Schema输出端点]
+ENDPOINT7[智能字段过滤端点]
 end
 subgraph "服务层"
 LLM[LLM服务]
@@ -274,6 +288,8 @@ TOKEN[令牌预算服务]
 SUMMARIZE[摘要服务]
 SQLGEN[SQL生成服务]
 SCHEMA_ENH[Schema增强服务]
+COMPACT_SCHEMA[紧凑Schema服务]
+FIELD_FILTER[字段过滤服务]
 end
 subgraph "数据层"
 SQLITE[SQLite数据库]
@@ -297,6 +313,8 @@ ENGINE --> TOKEN
 ENGINE --> SUMMARIZE
 ENGINE --> SQLGEN
 ENGINE --> SCHEMA_ENH
+ENGINE --> COMPACT_SCHEMA
+ENGINE --> FIELD_FILTER
 SCHEMA --> METADATA
 ENGINE --> SQLITE
 ENGINE --> LANCEDB
@@ -307,6 +325,8 @@ PLATFORM --> MEMORY
 CONTEXT --> ENGINE
 SQLGEN --> SCHEMA
 SCHEMA_ENH --> SCHEMA
+COMPACT_SCHEMA --> SCHEMA
+FIELD_FILTER --> SCHEMA
 TOKEN --> ENGINE
 SUMMARIZE --> ENGINE
 ```
@@ -329,6 +349,8 @@ participant Summarize as 对话摘要
 participant Platform as 平台术语解析
 participant Context as 澄清上下文增强
 participant Memory as 长期记忆模块
+participant CompactSchema as 紧凑Schema输出
+participant FieldFilter as 智能字段过滤
 participant LLM as LLM服务
 participant Schema as Schema加载器
 participant DB as 数据库
@@ -347,6 +369,10 @@ Context-->>Engine : 上下文增强结果
 Engine->>LLM : 分析用户意图
 LLM-->>Engine : 意图分析结果
 Engine->>Schema : 搜索相关表(含平台上下文)
+Schema->>CompactSchema : 生成紧凑Schema输出
+CompactSchema->>FieldFilter : 应用智能字段过滤
+FieldFilter-->>CompactSchema : 过滤后的字段
+CompactSchema-->>Schema : 紧凑Schema详情
 Schema-->>Engine : 表结构信息(智能匹配)
 Engine->>LLM : 生成SQL(含平台信息)
 LLM-->>Engine : SQL语句
@@ -374,37 +400,87 @@ WS-->>Client : 发送响应
 
 NL2SQL引擎是系统的核心，实现了完整的自然语言到SQL转换流程：
 
-#### 智能上下文管理系统
+#### 紧凑Schema输出机制
 
-**新增**智能上下文管理系统集成了动态令牌估算和预算控制：
+**新增**紧凑Schema输出机制显著优化了Schema信息的处理和展示：
 
 ```mermaid
 flowchart TD
-Start([开始上下文管理]) --> CheckBudget{检查预算配置}
-CheckBudget --> |启用| CalcBudget[计算上下文预算]
-CheckBudget --> |禁用| SkipBudget[跳过预算检查]
-CalcBudget --> AnalyzeContext[分析上下文结构]
-AnalyzeContext --> EstimateTokens[估算令牌数量]
-EstimateTokens --> CheckThreshold{检查阈值}
-CheckThreshold --> |正常| ProcessQuery[处理查询]
-CheckThreshold --> |警告| WarnUser[发出警告]
-CheckThreshold --> |临界| CompressContext[压缩上下文]
-CheckThreshold --> |超限| EmergencyCompress[紧急压缩]
-CompressContext --> CompressHistory[裁剪对话历史]
-CompressContext --> CompressChunks[压缩检索片段]
-EmergencyCompress --> AggressiveTrim[激进裁剪]
-CompressHistory --> RecheckBudget[重新检查预算]
-CompressChunks --> RecheckBudget
-AggressiveTrim --> RecheckBudget
-RecheckBudget --> ProcessQuery
-WarnUser --> ProcessQuery
-SkipBudget --> ProcessQuery
-ProcessQuery --> End([完成])
+Start([开始紧凑Schema输出]) --> ExtractKeywords[提取查询意图关键词]
+ExtractKeywords --> GetCriticalFields[获取关键字段白名单]
+GetCriticalFields --> FilterFields[过滤相关字段]
+FilterFields --> BuildCompactFormat[构建紧凑格式]
+BuildCompactFormat --> AddTags[添加关键标记]
+AddTags --> OutputSchema[输出紧凑Schema]
+OutputSchema --> End([完成])
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:1900-1947](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1900-L1947)
-- [tokenBudget.js:115-181](file://NL2SQL/backend/src/utils/tokenBudget.js#L115-L181)
+- [nl2sqlEngine.js:1377-1378](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1377-L1378)
+- [schemaLoader.js:704-769](file://NL2SQL/backend/src/core/schemaLoader.js#L704-L769)
+
+紧凑Schema输出的主要特点：
+- **关键字段优先**：只展示主键、外键、时间字段等关键字段
+- **智能相关性过滤**：根据查询意图自动识别相关字段
+- **紧凑格式**：减少字段描述，使用简洁格式
+- **标签标注**：为主键、外键、分区键等添加标记
+
+#### 智能字段过滤功能
+
+**新增**智能字段过滤功能实现了基于查询意图的字段选择：
+
+```mermaid
+stateDiagram-v2
+[*] --> 提取查询关键词
+提取查询关键词 --> 识别关键字段
+识别关键字段 --> 检查字段类型
+检查字段类型 --> 关键字段检查
+关键字段检查 --> 相关字段检查
+相关字段检查 --> 过滤字段
+过滤字段 --> 构建输出
+构建输出 --> [*]
+```
+
+**图表来源**
+- [schemaLoader.js:708-739](file://NL2SQL/backend/src/core/schemaLoader.js#L708-L739)
+
+智能字段过滤的工作流程：
+1. **关键词提取**：从查询意图中提取业务关键词
+2. **关键字段识别**：识别主键、外键、时间字段等关键字段
+3. **相关性匹配**：根据关键词匹配相关字段
+4. **字段过滤**：只保留关键字段和相关字段
+5. **格式优化**：使用紧凑格式输出字段信息
+
+#### 优化的表选择逻辑
+
+**更新**表选择逻辑经过重大优化，提升了处理效率和准确性：
+
+```mermaid
+flowchart TD
+Start([开始表选择]) --> CheckContext{检查上下文}
+CheckContext --> |有上下文| EnhanceQuery[增强查询文本]
+CheckContext --> |无上下文| DirectSearch[直接搜索]
+EnhanceQuery --> VectorSearch[向量语义搜索]
+DirectSearch --> VectorSearch
+VectorSearch --> CheckResults{检查结果}
+CheckResults --> |成功| FilterResults[过滤结果]
+CheckResults --> |失败| KeywordMatch[关键词匹配]
+FilterResults --> DataSourcePriority[数据源优先级]
+DataSourcePriority --> PlatformPriority[平台优先级]
+PlatformPriority --> LimitResults[限制结果数量]
+LimitResults --> ReturnTables[返回表列表]
+KeywordMatch --> LimitResults
+```
+
+**图表来源**
+- [schemaLoader.js:430-519](file://NL2SQL/backend/src/core/schemaLoader.js#L430-L519)
+
+优化的表选择逻辑包括：
+- **上下文增强**：根据game_id和datasource增强查询
+- **向量搜索优先**：优先使用语义搜索，失败时回退到关键词匹配
+- **数据源优先**：优先匹配对应数据源的表
+- **平台智能匹配**：根据game_id推断平台类型并匹配相应表
+- **结果限制**：限制返回表数量，避免过度处理
 
 #### 令牌预算管理模块
 
@@ -745,6 +821,7 @@ class SchemaLoader {
 +validateSQL(sql) Object
 +getSchemaSummary() string
 +getTableSchemaDetail(tableNames) string
++getTableSchemaDetailCompact(tableNames, intent) string
 }
 class SchemaData {
 +version : string
@@ -1122,6 +1199,8 @@ IM17[对话摘要]
 IM18[令牌预算]
 IM19[SQL生成增强]
 IM20[Schema加载器增强]
+IM21[紧凑Schema输出]
+IM22[智能字段过滤]
 end
 EX1 --> IM9
 EX2 --> IM8
@@ -1151,6 +1230,8 @@ IM1 --> IM17
 IM1 --> IM18
 IM1 --> IM19
 IM1 --> IM20
+IM1 --> IM21
+IM1 --> IM22
 IM9 --> IM7
 IM8 --> IM7
 IM7 --> IM5
@@ -1164,6 +1245,8 @@ IM7 --> IM17
 IM7 --> IM18
 IM7 --> IM19
 IM7 --> IM20
+IM7 --> IM21
+IM7 --> IM22
 IM12 --> IM13
 IM12 --> IM3
 IM12 --> IM4
@@ -1174,6 +1257,8 @@ IM17 --> IM7
 IM18 --> IM7
 IM19 --> IM5
 IM20 --> IM5
+IM21 --> IM5
+IM22 --> IM5
 IM5 --> IM4
 IM5 --> IM3
 IM11 --> IM7
@@ -1200,6 +1285,8 @@ IM18 --> IM7
 8. **上下文层集成**：智能上下文管理系统集成到查询处理
 9. **摘要层集成**：对话摘要机制集成到历史管理
 10. **预算层集成**：令牌预算管理集成到上下文控制
+11. **紧凑Schema层集成**：紧凑Schema输出集成到SQL生成
+12. **字段过滤层集成**：智能字段过滤集成到Schema处理
 
 **章节来源**
 - [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
@@ -1221,6 +1308,8 @@ IM18 --> IM7
 8. **澄清上下文缓存**：多轮对话上下文缓存
 9. **摘要缓存**：对话摘要缓存，避免重复生成
 10. **预算状态缓存**：令牌预算状态缓存
+11. **紧凑Schema缓存**：紧凑Schema输出缓存
+12. **字段过滤缓存**：智能字段过滤结果缓存
 
 ### 并发处理
 
@@ -1234,6 +1323,8 @@ IM18 --> IM7
 8. **SQL生成优化**：SQL生成采用流式处理
 9. **摘要异步生成**：对话摘要生成异步处理
 10. **预算计算优化**：令牌估算采用批量处理
+11. **紧凑Schema异步**：紧凑Schema输出异步处理
+12. **字段过滤优化**：智能字段过滤采用缓存机制
 
 ### 内存管理
 
@@ -1247,6 +1338,8 @@ IM18 --> IM7
 8. **澄清历史压缩**：对话历史智能压缩
 9. **摘要缓存管理**：智能缓存过期清理
 10. **预算状态跟踪**：令牌预算状态智能跟踪
+11. **紧凑Schema缓存**：紧凑Schema结果缓存
+12. **字段过滤缓存**：智能字段过滤结果缓存
 
 ## 故障排除指南
 
@@ -1428,7 +1521,39 @@ IM18 --> IM7
 - 检查内存使用情况
 - 优化令牌估算算法
 
-#### 12. Markdown渲染问题
+#### 12. 紧凑Schema输出问题
+
+**症状**：紧凑Schema输出格式异常或字段缺失
+
+**排查步骤**：
+1. 检查紧凑Schema配置
+2. 验证字段过滤逻辑
+3. 查看关键词提取
+4. 检查缓存状态
+
+**解决方法**：
+- 更新紧凑Schema配置
+- 验证字段过滤规则
+- 检查关键词提取逻辑
+- 清理紧凑Schema缓存
+
+#### 13. 智能字段过滤问题
+
+**症状**：字段过滤结果不准确或性能问题
+
+**排查步骤**：
+1. 检查字段过滤配置
+2. 验证意图关键词提取
+3. 查看字段相关性计算
+4. 检查过滤缓存
+
+**解决方法**：
+- 更新字段过滤配置
+- 验证意图关键词提取
+- 检查字段相关性算法
+- 清理字段过滤缓存
+
+#### 14. Markdown渲染问题
 
 **症状**：Markdown内容显示异常
 
@@ -1444,7 +1569,7 @@ IM18 --> IM7
 - 更新KaTeX版本
 - 修复CSS样式冲突
 
-#### 13. 记忆管理视图问题
+#### 15. 记忆管理视图问题
 
 **症状**：记忆数据无法正确显示或删除
 
@@ -1507,6 +1632,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 12. **对话摘要**：基于令牌预算的智能压缩机制
 13. **令牌预算管理**：精确的上下文令牌控制
 14. **增强向量存储**：智能元数据和查询类型分类
+15. **紧凑Schema输出**：显著减少Token消耗和处理时间
+16. **智能字段过滤**：精准的Schema字段选择和展示
 
 ### 功能特色
 
@@ -1525,6 +1652,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 13. **智能预算控制**：动态令牌估算和预算管理
 14. **对话压缩**：基于令牌预算的智能历史压缩
 15. **增强元数据**：智能查询类型分类和重要性评分
+16. **紧凑Schema输出**：优化的Schema信息展示和处理
+17. **智能字段过滤**：基于查询意图的字段精准过滤
 
 ### 应用价值
 
@@ -1550,5 +1679,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 优化性能监控
 - 增强安全防护
 - 支持更多部署方式
+- 增强紧凑Schema输出的自适应能力
+- 优化智能字段过滤的准确性
+- 扩展令牌预算管理的智能化程度
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

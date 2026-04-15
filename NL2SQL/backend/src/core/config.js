@@ -330,6 +330,27 @@ const config = {
       // 摘要更新间隔（轮数）
       updateInterval: parseInt(process.env.SUMMARIZER_UPDATE_INTERVAL) || 4
     }
+  },
+
+  // ----------------------------------------
+  // 评估配置（新增）
+  // ----------------------------------------
+  
+  /**
+   * 向量化质量和记忆命中率评估配置
+   */
+  evaluation: {
+    // 是否启用评估功能（需要手动开启）
+    enabled: process.env.EVALUATION_ENABLED === 'true' || false,
+    // 是否记录运行时统计
+    trackStats: process.env.EVALUATION_TRACK_STATS === 'true' || false,
+    // 评估阈值
+    thresholds: {
+      highSimilarity: 0.8,
+      mediumSimilarity: 0.5,
+      highQuality: 0.8,
+      mediumQuality: 0.5
+    }
   }
 };
 

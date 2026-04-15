@@ -18,6 +18,7 @@ const database = require('../core/database');
 const logger = require('../utils/logger');
 const llmService = require('../core/llmService');
 const config = require('../core/config');
+const evaluation = require('../utils/evaluation');
 
 // ============================================
 // 常量定义（从配置读取，可覆盖）
@@ -982,6 +983,12 @@ async function getUserPreferencesForIntent(userId) {
       database.getUserPreferences(userId, PREFERENCE_TYPES.METRIC_PREFERENCE, 10),
       database.getUserPreferences(userId, PREFERENCE_TYPES.DIMENSION_PREFERENCE, 10)
     ]);
+    
+    // 记录统计
+    evaluation.recordMemoryHit('field_alias', aliases.length > 0);
+    evaluation.recordMemoryHit('query_pattern', patterns.length > 0);
+    evaluation.recordMemoryHit('metric_preference', metrics.length > 0);
+    evaluation.recordMemoryHit('dimension_preference', dimensions.length > 0);
     
     // 提取常用指标和维度名称列表
     const metricNames = metrics.map(m => m.content?.field_name).filter(Boolean);

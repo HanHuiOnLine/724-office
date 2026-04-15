@@ -25,6 +25,8 @@ const schemaLoader = require('./schemaLoader');
 const database = require('./database');
 // 导入SSE处理器，获取连接统计
 const sseHandler = require('./sseHandler');
+// 导入评估模块
+const evaluation = require('../utils/evaluation');
 
 // ============================================
 // 创建路由实例
@@ -711,6 +713,146 @@ router.post('/preferences/:userId/learn-alias', async (req, res) => {
       error: '学习字段别名失败: ' + error.message
     });
   }
+});
+
+// ============================================
+// 评估接口（新增）
+// ============================================
+
+/**
+ * GET /api/evaluation/stats
+ * 获取运行时统计报告（向量检索命中率、记忆命中率）
+ */
+router.get('/evaluation/stats', (req, res) => {
+  try {
+    const report = evaluation.getFullStatsReport();
+    res.json({
+      success: true,
+      data: report
+    });
+  } catch (error) {
+    logger.error('获取评估统计失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '获取评估统计失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * POST /api/evaluation/stats/reset
+ * 重置统计数据
+ */
+router.post('/evaluation/stats/reset', (req, res) => {
+  try {
+    evaluation.resetStats();
+    res.json({
+      success: true,
+      message: '统计数据已重置'
+    });
+  } catch (error) {
+    logger.error('重置统计数据失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '重置统计数据失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * POST /api/evaluation/schema-quality
+ * 执行Schema向量化质量评估
+ * 
+ * 请求体：
+ * {
+ *   testQueries: [{ query: "查询", expectedTables: ["表名"] }]
+ * }
+ */
+router.post('/evaluation/schema-quality', async (req, res) => {
+  try {
+    if (!config.evaluation.enabled) {
+      return res.status(403).json({
+        success: false,
+        error: '评估功能未启用，请设置 EVALUATION_ENABLED=true'
+      });
+    }
+    
+    const { testQueries } = req.body;
+    const queries = testQueries || evaluation.DEFAULT_SCHEMA_TEST_QUERIES;
+    
+    const llmService = require('./llmService');
+    const vectorStore = require('../memory/vectorStore');
+    
+    const results = await evaluation.evaluateSchemaVectorQuality(
+      llmService,
+      vectorStore,
+      queries
+    );
+    
+    res.json({
+      success: true,
+      data: results
+    });
+  } catch (error) {
+    logger.error('Schema质量评估失败:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Schema质量评估失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * POST /api/evaluation/query-quality
+ * 执行查询历史向量化质量评估
+ * 
+ * 请求体：
+ * {
+ *   testPairs: [{ query1: "查询1", query2: "查询2", expectedSimilarity: 0.9 }]
+ * }
+ */
+router.post('/evaluation/query-quality', async (req, res) => {
+  try {
+    if (!config.evaluation.enabled) {
+      return res.status(403).json({
+        success: false,
+        error: '评估功能未启用，请设置 EVALUATION_ENABLED=true'
+      });
+    }
+    
+    const { testPairs } = req.body;
+    const pairs = testPairs || evaluation.DEFAULT_QUERY_SIMILARITY_PAIRS;
+    
+    const llmService = require('./llmService');
+    
+    const results = await evaluation.evaluateQueryVectorQuality(llmService, pairs);
+    
+    res.json({
+      success: true,
+      data: results
+    });
+  } catch (error) {
+    logger.error('查询质量评估失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '查询质量评估失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * GET /api/evaluation/config
+ * 获取评估配置
+ */
+router.get('/evaluation/config', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      enabled: config.evaluation.enabled,
+      trackStats: config.evaluation.trackStats,
+      thresholds: config.evaluation.thresholds
+    }
+  });
 });
 
 // ============================================
