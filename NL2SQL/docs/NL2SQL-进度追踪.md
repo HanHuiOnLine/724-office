@@ -1,7 +1,7 @@
 # NL2SQL 自然语言提数工具 - 进度追踪
 
 > 本文档记录系统当前实现状态与剩余任务，作为开发进度指引
-> 最后更新：2026-04-10
+> 最后更新：2026-04-15
 
 ---
 
@@ -10,8 +10,8 @@
 | 阶段 | 状态 | 完成度 |
 |------|------|--------|
 | 阶段一：MVP（基础架构） | 🟢 基本完成 | 90% |
-| 阶段二：核心功能 | 🟡 部分完成 | 70% |
-| 阶段三：增强功能 | 🔴 大量未完成 | 30% |
+| 阶段二：核心功能 | 🟡 部分完成 | 85% |
+| 阶段三：增强功能 | 🟡 部分完成 | 60% |
 | 阶段四：完善优化 | ⚪ 未开始 | 0% |
 
 ---
@@ -59,15 +59,16 @@
 ## 🔴 高优先级任务（影响核心功能）
 
 ### 1. 三层记忆系统 - Layer 2（长期记忆）⭐⭐⭐
-**状态**：表结构已创建，逻辑未实现  
-**文件**：`backend/src/core/database.js` (user_preferences 表)
+**状态**：🟢 已实现  
+**文件**：`backend/src/memory/longTermMemory.js`, `backend/src/core/database.js`
 
 **任务清单**：
-- [ ] 实现用户查询偏好自动提取
-- [ ] 实现字段别名映射学习
-- [ ] 实现常用查询模板存储
-- [ ] 在意图识别时读取用户偏好
-- [ ] 定期压缩和更新长期记忆
+- [x] 实现用户查询偏好自动提取（支持LLM智能分析和逻辑判断双模式）
+- [x] 实现字段别名映射学习（支持游戏映射、数据源映射、字段别名）
+- [x] 实现常用查询模板存储（自动提取+手动存储）
+- [x] 在意图识别时读取用户偏好（getUserPreferencesForIntent）
+- [x] 定期压缩和更新长期记忆（memoryMaintenance定时任务）
+- [x] 澄清轮即时学习（extractMappingsFromText支持Markdown表格、键值对、显式声明）
 
 **存储结构**：
 ```json
@@ -86,14 +87,14 @@
 ---
 
 ### 3. 查询历史向量化 ⭐⭐⭐
-**状态**：有接口但未实际调用  
+**状态**：🟢 已实现  
 **文件**：`backend/src/memory/vectorStore.js`, `backend/src/core/nl2sqlEngine.js`
 
 **任务清单**：
-- [ ] 在 `processQuery` 完成后调用 `addQueryVector`
-- [ ] 实现相似查询推荐功能
-- [ ] 在意图识别阶段检索相似历史查询
-- [ ] 优化向量检索的准确性和性能
+- [x] 在 `processQuery` 完成后调用 `addQueryVector`（带增强元数据）
+- [x] 实现相似查询推荐功能（searchSimilarQueries）
+- [x] 在意图识别阶段检索相似历史查询（已集成到意图识别流程）
+- [x] 优化向量检索的准确性和性能（支持重要性评分、查询类型分类、复杂度分析）
 
 ---
 
@@ -150,14 +151,17 @@
 ---
 
 ### 7. 自修复机制完善 ⭐⭐
-**状态**：框架已搭建，核心功能未实现
+**状态**：🟡 框架完成，基础功能已实现  
 
 **任务清单**：
+- [x] 每日健康报告生成（performDailyCheck - 检查数据库、向量库、查询统计、内存等）
+- [x] 会话清理任务（cleanupSessions - 自动归档过期会话）
+- [x] 统计信息收集（collectStats - 定期收集系统运行数据）
+- [x] 记忆维护任务（performMemoryMaintenance - 调用memoryMaintenance压缩记忆）
 - [ ] SQL 生成失败案例分析
 - [ ] 自动分类错误类型（Schema不匹配、语法错误等）
 - [ ] Prompt 自动优化（根据失败案例调整）
 - [ ] 管理员通知功能（邮件/企业微信）
-- [ ] 每日健康报告生成
 - [ ] 慢查询自动优化建议
 
 **涉及文件**：`backend/src/core/selfRepair.js`
@@ -192,8 +196,8 @@
 - [ ] 自动化部署脚本
 
 ### 12. 真实数据库连接 ⭐
-**状态**：当前使用模拟数据，待 SQL 质量验证通过后实施  
-**文件**：`backend/src/core/nl2sqlEngine.js` (第698-765行)
+**状态**：🔴 当前使用模拟数据，待 SQL 质量验证通过后实施  
+**文件**：`backend/src/core/nl2sqlEngine.js` (第1700-1750行)
 
 **前置条件**：
 - [ ] SQL 验证与测试工具完成
@@ -225,7 +229,7 @@ async function executeQuery(sql) {
 |---------|------|------|
 | `backend/src/core/nl2sqlEngine.js` | NL2SQL核心引擎 | 需完善 executeQuery |
 | `backend/src/core/schemaLoader.js` | Schema管理 | 基本完整 |
-| `backend/src/core/wsHandler.js` | WebSocket处理 | 基本完整 |
+| `backend/src/core/sseHandler.js` | SSE流式处理 | 基本完整 |
 | `backend/src/core/database.js` | SQLite数据库 | 需完善Layer2 |
 | `backend/src/memory/vectorStore.js` | 向量存储 | 需完善查询历史存储 |
 | `backend/src/core/selfRepair.js` | 自修复机制 | 框架完成，功能待实现 |
@@ -245,11 +249,11 @@ async function executeQuery(sql) {
 
 ### Week 1
 1. **实现 SQL 验证与测试工具** - 创建测试用例库，验证 AI 生成 SQL 质量
-2. **完成查询历史向量化** - 存储查询到向量库，支持相似查询推荐
+2. **结果可视化基础版** - 集成 ECharts 展示柱状图/折线图
 
 ### Week 2
-3. **实现 Layer 2 长期记忆** - 用户偏好学习和常用模板存储
-4. **结果可视化基础版** - 集成 ECharts 展示柱状图/折线图
+3. **数据安全增强** - 实现敏感字段脱敏、行级权限控制
+4. **自修复机制完善** - SQL失败案例分析、Prompt自动优化
 
 ---
 

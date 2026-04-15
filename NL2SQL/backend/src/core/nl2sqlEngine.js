@@ -1356,9 +1356,10 @@ async function generateSQL(intent, history = [], userId = null) {
   }
   
   // 搜索相关表（传入上下文进行智能匹配）
+  // 【优化】限制返回表数量为3，减少Schema负载和Token消耗
   const relevantTables = await schemaLoader.searchRelevantTables(
     intent.original_query, 
-    5,
+    3,
     context
   );
   
@@ -1370,8 +1371,11 @@ async function generateSQL(intent, history = [], userId = null) {
   ]);
   
   // 获取相关表的详细Schema（包含推断的表）
-  const tableNames = [...allTableNames];
-  const schemaDetail = schemaLoader.getTableSchemaDetail(tableNames);
+  // 【优化】限制最大表数量为5，避免Prompt过大
+  const tableNames = [...allTableNames].slice(0, 5);
+  
+  // 【优化】使用精简版Schema输出，只包含关键字段信息
+  const schemaDetail = schemaLoader.getTableSchemaDetailCompact(tableNames, intent);
   
   // 【修复】生成Schema映射提示，帮助AI理解表与业务术语的对应关系
   const schemaMappingHints = generateSchemaMappingHints(tableNames);

@@ -14,6 +14,8 @@
 - [config.js](file://NL2SQL/backend/src/core/config.js)
 - [longTermMemory.js](file://NL2SQL/backend/src/memory/longTermMemory.js)
 - [memoryMaintenance.js](file://NL2SQL/backend/src/memory/memoryMaintenance.js)
+- [summarizer.js](file://NL2SQL/backend/src/memory/summarizer.js)
+- [tokenBudget.js](file://NL2SQL/backend/src/utils/tokenBudget.js)
 - [main.js](file://NL2SQL/frontend/src/main.js)
 - [router.js](file://NL2SQL/frontend/src/router/index.js)
 - [session.js](file://NL2SQL/frontend/src/stores/session.js)
@@ -27,12 +29,12 @@
 
 ## 更新摘要
 **变更内容**
-- 新增平台术语解析系统(resolvePlatformInIntent)，支持"新平台"/"老平台"识别
-- 澄清上下文增强(enrichIntentWithClarificationContext)，改进多轮对话理解
-- 意图完整性检查改进(checkIntentComplete)，更严格的验证机制
-- SQL生成增强(generateSQL)，支持平台上下文的智能SQL生成
-- Schema加载器增强(searchRelevantTables)，支持平台和数据源上下文匹配
-- 澄清轮即时学习(extractMappingsFromText)，增强业务术语学习能力
+- 新增智能上下文管理系统，集成动态令牌估算和预算控制
+- 新增tokenBudget.js模块，提供智能上下文修剪功能
+- 增强NL2SQL引擎，集成智能上下文管理和预算检查
+- 扩展向量存储功能，增强元数据管理和查询类型分类
+- 新增对话摘要机制，基于令牌预算的智能压缩
+- 增强平台术语解析系统，支持智能上下文理解
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -64,6 +66,8 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **偏好管理**：完整的用户偏好可视化界面
 - **平台识别**：智能识别"新平台"/"老平台"等平台术语
 - **多轮对话**：增强的澄清机制和上下文理解
+- **智能上下文管理**：动态令牌估算和预算控制
+- **对话摘要**：基于令牌预算的智能压缩机制
 
 ## 项目结构
 
@@ -94,6 +98,9 @@ BE10[记忆维护模块]
 BE11[向量存储模块]
 BE12[平台术语解析]
 BE13[澄清上下文增强]
+BE14[智能上下文管理系统]
+BE15[对话摘要机制]
+BE16[令牌预算管理]
 end
 subgraph "数据存储"
 DS1[SQLite数据库]
@@ -119,6 +126,9 @@ BE10 --> BE9
 BE11 --> BE2
 BE12 --> BE2
 BE13 --> BE2
+BE14 --> BE2
+BE15 --> BE2
+BE16 --> BE2
 BE4 --> DS3
 BE5 --> DS1
 BE4 --> DS2
@@ -143,7 +153,7 @@ BE4 --> DS2
 系统的核心由以下关键组件构成：
 
 #### 1. NL2SQL引擎
-负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**平台术语解析系统和增强的实体解析系统。
+负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**智能上下文管理系统和增强的实体解析系统。
 
 #### 2. LLM服务
 封装与大型语言模型的交互，提供聊天、嵌入向量获取和重试机制。
@@ -152,7 +162,7 @@ BE4 --> DS2
 管理数据库Schema元数据，提供Schema查询、匹配和验证功能。**增强**支持平台和数据源上下文的智能匹配。
 
 #### 4. 向量存储模块
-基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。
+基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。**扩展**增强元数据管理和查询类型分类。
 
 #### 5. 数据库管理
 使用SQLite存储会话历史、消息记录、查询日志和用户偏好。
@@ -175,6 +185,15 @@ BE4 --> DS2
 #### 11. 澄清上下文增强
 **新增**改进的多轮对话上下文理解，支持默认选项确认和澄清历史整合。
 
+#### 12. 智能上下文管理系统
+**新增**集成动态令牌估算、预算控制和智能压缩功能，确保系统稳定性。
+
+#### 13. 对话摘要机制
+**新增**基于令牌预算的智能压缩机制，有效管理长对话历史。
+
+#### 14. 令牌预算管理
+**新增**独立的tokenBudget.js模块，提供精确的上下文令牌估算和预算控制。
+
 **章节来源**
 - [nl2sqlEngine.js:1-2010](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2010)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
@@ -184,6 +203,8 @@ BE4 --> DS2
 - [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
 - [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
 - [memoryMaintenance.js:1-415](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L1-L415)
+- [summarizer.js:1-518](file://NL2SQL/backend/src/memory/summarizer.js#L1-L518)
+- [tokenBudget.js:1-435](file://NL2SQL/backend/src/utils/tokenBudget.js#L1-L435)
 
 ### 前端核心组件
 
@@ -236,6 +257,8 @@ ENDPOINT2[记忆维护端点]
 ENDPOINT3[向量存储端点]
 PT_ENDPOINT[平台术语解析端点]
 ENHANCE_ENDPOINT[澄清上下文增强端点]
+TB_ENDPOINT[令牌预算端点]
+SUM_ENDPOINT[对话摘要端点]
 ENDPOINT4[SQL生成增强端点]
 ENDPOINT5[Schema加载器增强端点]
 end
@@ -247,6 +270,8 @@ ENTITIES[实体服务]
 MEMORY[记忆服务]
 PLATFORM[平台识别服务]
 CONTEXT[上下文理解服务]
+TOKEN[令牌预算服务]
+SUMMARIZE[摘要服务]
 SQLGEN[SQL生成服务]
 SCHEMA_ENH[Schema增强服务]
 end
@@ -268,6 +293,8 @@ ENGINE --> ENTITIES
 ENGINE --> MEMORY
 ENGINE --> PLATFORM
 ENGINE --> CONTEXT
+ENGINE --> TOKEN
+ENGINE --> SUMMARIZE
 ENGINE --> SQLGEN
 ENGINE --> SCHEMA_ENH
 SCHEMA --> METADATA
@@ -280,6 +307,8 @@ PLATFORM --> MEMORY
 CONTEXT --> ENGINE
 SQLGEN --> SCHEMA
 SCHEMA_ENH --> SCHEMA
+TOKEN --> ENGINE
+SUMMARIZE --> ENGINE
 ```
 
 **图表来源**
@@ -295,6 +324,8 @@ sequenceDiagram
 participant Client as 客户端
 participant WS as WebSocket服务器
 participant Engine as NL2SQL引擎
+participant Budget as 令牌预算管理
+participant Summarize as 对话摘要
 participant Platform as 平台术语解析
 participant Context as 澄清上下文增强
 participant Memory as 长期记忆模块
@@ -303,6 +334,9 @@ participant Schema as Schema加载器
 participant DB as 数据库
 Client->>WS : 发送查询请求
 WS->>Engine : 处理查询
+Engine->>Budget : 检查上下文预算
+Budget->>Budget : 计算令牌估算
+Budget-->>Engine : 预算状态
 Engine->>Engine : 意图识别(融合上下文)
 Engine->>Platform : 解析平台术语
 Platform->>Memory : 学习平台映射
@@ -323,6 +357,8 @@ Engine->>LLM : 格式化结果
 LLM-->>Engine : 自然语言回复
 Engine->>Memory : 提取长期记忆
 Memory-->>Engine : 返回偏好信息
+Engine->>Summarize : 智能压缩历史
+Summarize-->>Engine : 压缩后的历史
 Engine-->>WS : 返回结果
 WS-->>Client : 发送响应
 ```
@@ -338,9 +374,106 @@ WS-->>Client : 发送响应
 
 NL2SQL引擎是系统的核心，实现了完整的自然语言到SQL转换流程：
 
+#### 智能上下文管理系统
+
+**新增**智能上下文管理系统集成了动态令牌估算和预算控制：
+
+```mermaid
+flowchart TD
+Start([开始上下文管理]) --> CheckBudget{检查预算配置}
+CheckBudget --> |启用| CalcBudget[计算上下文预算]
+CheckBudget --> |禁用| SkipBudget[跳过预算检查]
+CalcBudget --> AnalyzeContext[分析上下文结构]
+AnalyzeContext --> EstimateTokens[估算令牌数量]
+EstimateTokens --> CheckThreshold{检查阈值}
+CheckThreshold --> |正常| ProcessQuery[处理查询]
+CheckThreshold --> |警告| WarnUser[发出警告]
+CheckThreshold --> |临界| CompressContext[压缩上下文]
+CheckThreshold --> |超限| EmergencyCompress[紧急压缩]
+CompressContext --> CompressHistory[裁剪对话历史]
+CompressContext --> CompressChunks[压缩检索片段]
+EmergencyCompress --> AggressiveTrim[激进裁剪]
+CompressHistory --> RecheckBudget[重新检查预算]
+CompressChunks --> RecheckBudget
+AggressiveTrim --> RecheckBudget
+RecheckBudget --> ProcessQuery
+WarnUser --> ProcessQuery
+SkipBudget --> ProcessQuery
+ProcessQuery --> End([完成])
+```
+
+**图表来源**
+- [nl2sqlEngine.js:1900-1947](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1900-L1947)
+- [tokenBudget.js:115-181](file://NL2SQL/backend/src/utils/tokenBudget.js#L115-L181)
+
+#### 令牌预算管理模块
+
+**新增**tokenBudget.js模块提供了精确的令牌估算和预算控制：
+
+```mermaid
+classDiagram
+class TokenBudget {
++estimateTokens(text) number
++estimateTokensBatch(texts) number[]
++estimateObjectTokens(data) number
++calculateContextBudget(context, options) Object
++trimHistory(history, keepRounds) Object
++compressRetrievedChunks(chunks, maxTokens) Object
++triggerCompression(context, budgetResult) Object
++isContextSafe(context) boolean
++getContextStatusSummary(context) string
+}
+class BudgetConfig {
++maxContextTokens : number
++reservedOutputTokens : number
++warningThreshold : number
++compressionThreshold : number
++recentHistoryRounds : number
++maxSystemPromptTokens : number
++maxRetrievedChunksTokens : number
+}
+class CompressionResult {
++context : Object
++actions : string[]
++before : Object
++after : Object
++success : boolean
+}
+TokenBudget --> BudgetConfig : "使用"
+TokenBudget --> CompressionResult : "返回"
+```
+
+**图表来源**
+- [tokenBudget.js:29-44](file://NL2SQL/backend/src/utils/tokenBudget.js#L29-L44)
+- [tokenBudget.js:414-434](file://NL2SQL/backend/src/utils/tokenBudget.js#L414-L434)
+
+#### 对话摘要机制
+
+**新增**基于令牌预算的智能压缩机制：
+
+```mermaid
+stateDiagram-v2
+[*] --> 检查历史轮数
+检查历史轮数 --> 轮数足够? : currentRounds >= triggerRounds
+轮数足够? --> |否| 直接处理
+轮数足够? --> |是| 检查缓存
+检查缓存 --> 有缓存? : cached && lastUpdateRound
+有缓存? --> |是| 使用缓存摘要
+有缓存? --> |否| 生成新摘要
+使用缓存摘要 --> 合并摘要
+生成新摘要 --> 压缩历史
+压缩历史 --> 计算压缩效果
+计算压缩效果 --> 更新缓存
+更新缓存 --> 合并摘要
+合并摘要 --> [*]
+```
+
+**图表来源**
+- [summarizer.js:450-492](file://NL2SQL/backend/src/memory/summarizer.js#L450-L492)
+
 #### 平台术语解析系统
 
-**新增**resolvePlatformInIntent函数实现了智能的平台术语识别：
+**更新**resolvePlatformInIntent函数实现了智能的平台术语识别：
 
 ```mermaid
 flowchart TD
@@ -362,7 +495,7 @@ AddFallback --> End
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:309-383](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L309-L383)
+- [nl2sqlEngine.js:534-607](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L534-L607)
 - [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
 
 #### 澄清上下文增强
@@ -387,7 +520,7 @@ stateDiagram-v2
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:443-482](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L443-L482)
+- [nl2sqlEngine.js:689-728](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L689-L728)
 
 #### 意图完整性检查改进
 
@@ -406,7 +539,7 @@ CheckConfidence --> CheckPending
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:922-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L922-L1012)
+- [nl2sqlEngine.js:2042-2056](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L2042-L2056)
 
 #### SQL生成增强
 
@@ -444,11 +577,13 @@ LearnMappings --> ReturnResult[返回学习结果]
 - [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
 
 **章节来源**
-- [nl2sqlEngine.js:309-383](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L309-L383)
-- [nl2sqlEngine.js:443-482](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L443-L482)
-- [nl2sqlEngine.js:922-1012](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L922-L1012)
+- [nl2sqlEngine.js:534-607](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L534-L607)
+- [nl2sqlEngine.js:689-728](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L689-L728)
+- [nl2sqlEngine.js:2042-2056](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L2042-L2056)
 - [nl2sqlEngine.js:1090-1288](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1090-L1288)
 - [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
+- [tokenBudget.js:1-435](file://NL2SQL/backend/src/utils/tokenBudget.js#L1-L435)
+- [summarizer.js:1-518](file://NL2SQL/backend/src/memory/summarizer.js#L1-L518)
 
 ### 长期记忆模块分析
 
@@ -518,11 +653,10 @@ Medium[中频偏好<br/>3-9次<br/>90天未用清理]
 Low[低频偏好<br/><3次<br/>30天未用清理]
 Alias[字段别名<br/>365天未用清理]
 End([清理完成])
-end
-High --> End
-Medium --> End
-Low --> End
-Alias --> End
+high --> End
+medium --> End
+low --> End
+alias --> End
 ```
 
 **图表来源**
@@ -700,9 +834,45 @@ QT --> TS
 - **模糊匹配**：支持一定的语义偏差
 - **批量检索**：支持同时处理多个查询
 
+#### 增强元数据管理
+
+**扩展**向量存储增强了元数据管理功能：
+
+```mermaid
+classDiagram
+class EnhancedMetadata {
++importanceScore : number
++queryType : string
++complexity : Object
++execution : Object
++intentSummary : Object
++timestamp : number
++calculateImportance(intent, success) number
++classifyQueryType(intent, queryText) string
++buildEnhancedMetadata(baseMetadata, options) Object
+}
+class QueryTypes {
+<<enumeration>>
+DEFINITION
+COMPARISON
+TREND
+CLARIFICATION
+FOLLOW_UP
+DATA_QUERY
+NEW_TOPIC
+}
+EnhancedMetadata --> QueryTypes : "使用"
+```
+
+**图表来源**
+- [vectorStore.js:137-193](file://NL2SQL/backend/src/memory/vectorStore.js#L137-L193)
+- [vectorStore.js:100-128](file://NL2SQL/backend/src/memory/vectorStore.js#L100-L128)
+
 **章节来源**
 - [vectorStore.js:201-230](file://NL2SQL/backend/src/memory/vectorStore.js#L201-L230)
 - [vectorStore.js:281-307](file://NL2SQL/backend/src/memory/vectorStore.js#L281-L307)
+- [vectorStore.js:137-193](file://NL2SQL/backend/src/memory/vectorStore.js#L137-L193)
+- [vectorStore.js:100-128](file://NL2SQL/backend/src/memory/vectorStore.js#L100-L128)
 
 ### 数据库管理系统
 
@@ -947,8 +1117,11 @@ IM12[长期记忆]
 IM13[记忆维护]
 IM14[平台术语解析]
 IM15[澄清上下文增强]
-IM16[SQL生成增强]
-IM17[Schema加载器增强]
+IM16[智能上下文管理]
+IM17[对话摘要]
+IM18[令牌预算]
+IM19[SQL生成增强]
+IM20[Schema加载器增强]
 end
 EX1 --> IM9
 EX2 --> IM8
@@ -975,6 +1148,9 @@ IM1 --> IM14
 IM1 --> IM15
 IM1 --> IM16
 IM1 --> IM17
+IM1 --> IM18
+IM1 --> IM19
+IM1 --> IM20
 IM9 --> IM7
 IM8 --> IM7
 IM7 --> IM5
@@ -985,17 +1161,25 @@ IM7 --> IM14
 IM7 --> IM15
 IM7 --> IM16
 IM7 --> IM17
+IM7 --> IM18
+IM7 --> IM19
+IM7 --> IM20
 IM12 --> IM13
 IM12 --> IM3
 IM12 --> IM4
 IM14 --> IM12
 IM15 --> IM7
-IM16 --> IM5
-IM17 --> IM5
-IM17 --> IM4
+IM16 --> IM7
+IM17 --> IM7
+IM18 --> IM7
+IM19 --> IM5
+IM20 --> IM5
 IM5 --> IM4
 IM5 --> IM3
 IM11 --> IM7
+IM16 --> IM18
+IM17 --> IM18
+IM18 --> IM7
 ```
 
 **图表来源**
@@ -1013,7 +1197,9 @@ IM11 --> IM7
 5. **渲染层集成**：前端组件依赖Markdown渲染系统
 6. **记忆层集成**：长期记忆模块深度集成到核心流程
 7. **平台层集成**：平台术语解析系统集成到意图识别
-8. **上下文层集成**：澄清上下文增强集成到对话管理
+8. **上下文层集成**：智能上下文管理系统集成到查询处理
+9. **摘要层集成**：对话摘要机制集成到历史管理
+10. **预算层集成**：令牌预算管理集成到上下文控制
 
 **章节来源**
 - [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
@@ -1033,6 +1219,8 @@ IM11 --> IM7
 6. **偏好缓存**：用户偏好查询缓存
 7. **平台映射缓存**：平台术语映射缓存
 8. **澄清上下文缓存**：多轮对话上下文缓存
+9. **摘要缓存**：对话摘要缓存，避免重复生成
+10. **预算状态缓存**：令牌预算状态缓存
 
 ### 并发处理
 
@@ -1044,6 +1232,8 @@ IM11 --> IM7
 6. **记忆异步存储**：长期记忆提取采用异步方式
 7. **平台解析异步**：平台术语解析异步执行
 8. **SQL生成优化**：SQL生成采用流式处理
+9. **摘要异步生成**：对话摘要生成异步处理
+10. **预算计算优化**：令牌估算采用批量处理
 
 ### 内存管理
 
@@ -1055,6 +1245,8 @@ IM11 --> IM7
 6. **记忆压缩**：定期清理低价值偏好
 7. **平台上下文缓存**：平台信息缓存避免重复计算
 8. **澄清历史压缩**：对话历史智能压缩
+9. **摘要缓存管理**：智能缓存过期清理
+10. **预算状态跟踪**：令牌预算状态智能跟踪
 
 ## 故障排除指南
 
@@ -1188,23 +1380,55 @@ IM11 --> IM7
 - 检查默认选项提取逻辑
 - 增加上下文理解规则
 
-#### 9. SQL生成增强问题
+#### 9. 智能上下文管理问题
 
-**症状**：SQL生成失败或平台信息丢失
+**症状**：令牌预算检查或上下文压缩失败
 
 **排查步骤**：
-1. 检查平台上下文提取
-2. 验证Schema搜索结果
-3. 查看日志错误信息
-4. 检查SQL生成提示词
+1. 检查令牌预算配置
+2. 验证上下文估算
+3. 查看压缩策略
+4. 检查日志错误信息
 
 **解决方法**：
-- 修复平台上下文提取
-- 更新Schema搜索逻辑
-- 检查SQL生成规则
-- 增加平台信息处理
+- 更新令牌预算配置
+- 验证上下文估算逻辑
+- 检查压缩策略设置
+- 修复上下文压缩功能
 
-#### 10. Markdown渲染问题
+#### 10. 对话摘要机制问题
+
+**症状**：摘要生成或压缩功能异常
+
+**排查步骤**：
+1. 检查摘要配置
+2. 验证历史轮数
+3. 查看摘要缓存
+4. 检查LLM调用
+
+**解决方法**：
+- 更新摘要配置
+- 验证历史轮数阈值
+- 清理摘要缓存
+- 检查LLM服务状态
+
+#### 11. 令牌预算管理问题
+
+**症状**：令牌估算或预算控制异常
+
+**排查步骤**：
+1. 检查令牌估算配置
+2. 验证预算阈值
+3. 查看日志统计
+4. 检查内存使用
+
+**解决方法**：
+- 更新令牌估算配置
+- 调整预算阈值
+- 检查内存使用情况
+- 优化令牌估算算法
+
+#### 12. Markdown渲染问题
 
 **症状**：Markdown内容显示异常
 
@@ -1220,7 +1444,7 @@ IM11 --> IM7
 - 更新KaTeX版本
 - 修复CSS样式冲突
 
-#### 11. 记忆管理视图问题
+#### 13. 记忆管理视图问题
 
 **症状**：记忆数据无法正确显示或删除
 
@@ -1279,6 +1503,10 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 8. **自动化维护**：智能清理和相似模式合并
 9. **平台识别**：智能识别"新平台"/"老平台"等平台术语
 10. **多轮对话**：增强的澄清机制和上下文理解
+11. **智能上下文管理**：动态令牌估算和预算控制
+12. **对话摘要**：基于令牌预算的智能压缩机制
+13. **令牌预算管理**：精确的上下文令牌控制
+14. **增强向量存储**：智能元数据和查询类型分类
 
 ### 功能特色
 
@@ -1294,6 +1522,9 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 10. **偏好管理**：完整的用户偏好可视化界面
 11. **平台识别**：智能识别平台术语和数据源
 12. **澄清学习**：澄清轮中的智能业务术语学习
+13. **智能预算控制**：动态令牌估算和预算管理
+14. **对话压缩**：基于令牌预算的智能历史压缩
+15. **增强元数据**：智能查询类型分类和重要性评分
 
 ### 应用价值
 
@@ -1315,5 +1546,9 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 优化多轮对话体验
 - 扩展业务术语库
 - 增加智能推荐功能
+- 集成更多AI能力
+- 优化性能监控
+- 增强安全防护
+- 支持更多部署方式
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

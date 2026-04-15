@@ -690,6 +690,120 @@ function getTableSchemaDetail(tableNames) {
   return lines.join('\n');
 }
 
+/**
+ * 【优化】获取精简版表Schema详细信息
+ * 相比 getTableSchemaDetail，此函数：
+ * 1. 只输出关键字段（主键、外键、时间字段、与意图相关的字段）
+ * 2. 移除冗余的字段描述
+ * 3. 使用更紧凑的格式
+ * 
+ * @param {Array<string>} tableNames - 表名数组
+ * @param {Object} intent - 查询意图，用于字段过滤
+ * @returns {string} 精简版Schema描述
+ */
+function getTableSchemaDetailCompact(tableNames, intent = {}) {
+  const lines = [];
+  
+  // 从意图中提取关键词用于字段匹配
+  const intentKeywords = extractIntentKeywords(intent);
+  
+  // 关键字段白名单（始终保留）
+  const criticalFields = ['create_time', 'tz_account_id', 'game_id', 'role_id', 'channel_id'];
+  
+  for (const tableName of tableNames) {
+    const table = getTable(tableName);
+    if (!table) continue;
+    
+    // 紧凑的表头格式：表名(中文名) - 描述
+    let tableHeader = `表: ${table.name}`;
+    if (table.name_cn) {
+      tableHeader += ` (${table.name_cn})`;
+    }
+    lines.push(tableHeader);
+    
+    // 精简字段列表
+    const fieldLines = [];
+    for (const field of table.fields) {
+      // 判断是否为关键字段
+      const isCritical = criticalFields.includes(field.name) || 
+                         field.is_primary || 
+                         field.foreign_key;
+      
+      // 判断是否与意图相关
+      const isRelevant = intentKeywords.some(kw => 
+        field.name.includes(kw) || 
+        (field.name_cn && field.name_cn.includes(kw))
+      );
+      
+      // 只保留关键字段或相关字段
+      if (!isCritical && !isRelevant) continue;
+      
+      // 紧凑的字段格式：字段名(类型) 中文名 [标记]
+      let fieldDesc = `  ${field.name}(${field.type})`;
+      if (field.name_cn) {
+        fieldDesc += ` ${field.name_cn}`;
+      }
+      
+      // 添加关键标记
+      const tags = [];
+      if (field.is_primary) tags.push('主键');
+      if (field.foreign_key) tags.push(`外键:${field.foreign_key}`);
+      if (field.name === 'create_time') tags.push('分区键');
+      
+      if (tags.length > 0) {
+        fieldDesc += ` [${tags.join(',')}]`;
+      }
+      
+      fieldLines.push(fieldDesc);
+    }
+    
+    if (fieldLines.length > 0) {
+      lines.push('字段:');
+      lines.push(...fieldLines);
+    }
+    
+    lines.push(''); // 表之间空行
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * 从意图中提取关键词
+ * @param {Object} intent - 查询意图
+ * @returns {Array<string>} 关键词数组
+ */
+function extractIntentKeywords(intent) {
+  const keywords = [];
+  
+  if (!intent) return keywords;
+  
+  // 从原始查询中提取
+  if (intent.original_query) {
+    // 提取中文业务术语（2-4个字符的词）
+    const matches = intent.original_query.match(/[\u4e00-\u9fa5]{2,4}/g);
+    if (matches) keywords.push(...matches);
+  }
+  
+  // 从指标中提取
+  if (intent.metrics && Array.isArray(intent.metrics)) {
+    intent.metrics.forEach(m => {
+      if (m.includes('_')) {
+        keywords.push(...m.split('_'));
+      } else {
+        keywords.push(m);
+      }
+    });
+  }
+  
+  // 从维度中提取
+  if (intent.dimensions && Array.isArray(intent.dimensions)) {
+    intent.dimensions.forEach(d => keywords.push(d));
+  }
+  
+  return [...new Set(keywords)]; // 去重
+}
+
 // ============================================
 // 缓存管理
 // ============================================
@@ -810,6 +924,7 @@ module.exports = {
   // Schema摘要
   getSchemaSummary,
   getTableSchemaDetail,
+  getTableSchemaDetailCompact,  // 【优化】精简版Schema输出
   // 业务关键词映射
   getBusinessKeywordMappings,
   // 缓存检查

@@ -4,6 +4,7 @@
 **本文档引用的文件**
 - [longTermMemory.js](file://NL2SQL/backend/src/memory/longTermMemory.js)
 - [vectorStore.js](file://NL2SQL/backend/src/memory/vectorStore.js)
+- [summarizer.js](file://NL2SQL/backend/src/memory/summarizer.js)
 - [memoryMaintenance.js](file://NL2SQL/backend/src/memory/memoryMaintenance.js)
 - [nl2sqlEngine.js](file://NL2SQL/backend/src/core/nl2sqlEngine.js)
 - [schemaLoader.js](file://NL2SQL/backend/src/core/schemaLoader.js)
@@ -11,12 +12,16 @@
 - [config.js](file://NL2SQL/backend/src/core/config.js)
 - [app.js](file://NL2SQL/backend/src/app.js)
 - [logger.js](file://NL2SQL/backend/src/utils/logger.js)
+- [tokenBudget.js](file://NL2SQL/backend/src/utils/tokenBudget.js)
 - [schema-metadata.json](file://NL2SQL/backend/config/schema-metadata.json)
 - [package.json](file://NL2SQL/backend/package.json)
 </cite>
 
 ## 更新摘要
 **变更内容**
+- 新增智能对话摘要系统，提供LLM驱动的长期对话管理
+- 增强向量存储功能，新增查询分类和重要性评分机制
+- 在NL2SQL引擎中集成对话历史压缩功能
 - 新增平台术语学习功能，支持用户对"新平台"/"老平台"等术语的个性化映射
 - 增强datasource类型的字段别名学习能力
 - 更新LLM智能分析功能，支持更精细的偏好提取
@@ -42,7 +47,7 @@ NL2SQL长期记忆系统是一个基于三层记忆架构的智能数据查询�
 - **第二层：长期记忆** - 用户偏好和查询模式（本系统重点）
 - **第三层：检索记忆** - 向量数据库中的语义检索
 
-**更新** 系统现已增强平台术语学习功能，能够智能识别和学习用户对"新平台"/"老平台"等术语的个性化映射，支持datasource类型的字段别名学习，大大增强了系统的个性化服务能力。
+**更新** 系统现已新增智能对话摘要系统，能够自动压缩长时间对话历史，将早期对话压缩为摘要，保留近期对话原文。同时增强了向量存储功能，新增查询分类和重要性评分机制，支持更精细的查询管理和检索优化。
 
 该系统能够智能识别用户的查询模式、字段别名、常用指标和维度偏好，并通过机器学习算法进行智能提炼和存储。
 
@@ -57,43 +62,109 @@ A[应用入口 app.js]
 B[配置管理 config.js]
 C[数据库管理 database.js]
 D[日志系统 logger.js]
+E[Token预算管理 tokenBudget.js]
 end
 subgraph "核心引擎"
-E[NL2SQL引擎 nl2sqlEngine.js]
-F[Schema加载 schemaLoader.js]
+F[NL2SQL引擎 nl2sqlEngine.js]
+G[Schema加载 schemaLoader.js]
 end
 subgraph "记忆系统"
-G[长期记忆 longTermMemory.js]
-H[向量存储 vectorStore.js]
-I[记忆维护 memoryMaintenance.js]
+H[长期记忆 longTermMemory.js]
+I[向量存储 vectorStore.js]
+J[对话摘要 summarizer.js]
+K[记忆维护 memoryMaintenance.js]
 end
 subgraph "外部依赖"
-J[LanceDB向量数据库]
-K[SQLite数据库]
-L[LLM服务]
+L[LanceDB向量数据库]
+M[SQLite数据库]
+N[LLM服务]
 end
 A --> B
 A --> C
 A --> D
 A --> E
-E --> F
-E --> G
-G --> H
-G --> C
-H --> J
-C --> K
-E --> L
+A --> F
+F --> G
+F --> H
+F --> J
+H --> I
+H --> C
+I --> L
+C --> M
+F --> N
+J --> N
 ```
 
 **图表来源**
 - [app.js:1-238](file://NL2SQL/backend/src/app.js#L1-L238)
-- [config.js:1-332](file://NL2SQL/backend/src/core/config.js#L1-L332)
+- [config.js:1-377](file://NL2SQL/backend/src/core/config.js#L1-L377)
 
 **章节来源**
 - [app.js:1-238](file://NL2SQL/backend/src/app.js#L1-L238)
 - [package.json:1-28](file://NL2SQL/backend/package.json#L1-L28)
 
 ## 核心组件
+
+### 智能对话摘要模块
+
+**新增** 智能对话摘要模块是系统的新功能，负责长对话历史的自动摘要和压缩，将早期对话压缩为摘要，保留近期对话原文。
+
+#### 主要功能特性
+
+1. **对话历史分割**：
+   - 基于轮数阈值（默认8轮）触发摘要
+   - 保留最近对话轮数（默认4轮）不参与摘要
+   - 智能计算需要摘要和保留的消息数量
+
+2. **LLM驱动摘要生成**：
+   - 使用系统提示词指导摘要生成
+   - 保留用户查询意图和关键需求
+   - 保留已确认的重要信息（如game_id、时间范围等）
+   - 保留用户偏好设置和业务规则
+
+3. **智能压缩策略**：
+   - 内存缓存机制，避免重复生成摘要
+   - 增量更新摘要，支持新对话的融合
+   - 基于轮数间隔的更新策略
+
+4. **配置管理**：
+   - 可配置的触发阈值、保留轮数、最大Token数
+   - 环境变量支持，便于部署配置
+
+**章节来源**
+- [summarizer.js:1-518](file://NL2SQL/backend/src/memory/summarizer.js#L1-L518)
+
+### 增强向量存储模块
+
+**更新** 向量存储模块现已增强，新增查询分类和重要性评分机制，提供更精细的查询管理和检索优化。
+
+#### 核心功能增强
+
+1. **查询类型分类**：
+   - 数据查询（DATA_QUERY）
+   - 定义/解释查询（DEFINITION）
+   - 对比查询（COMPARISON）
+   - 趋势查询（TREND）
+   - 澄清回复（CLARIFICATION）
+   - 跟进查询（FOLLOW_UP）
+   - 新话题（NEW_TOPIC）
+
+2. **重要性评分机制**：
+   - 基于意图复杂度、成功状态、维度指标数量等因素
+   - 成功查询额外加分
+   - 多维度、多指标查询更有价值
+   - 高置信度查询加分
+   - 上下文查询更有学习价值
+
+3. **增强元数据构建**：
+   - 计算查询重要性评分
+   - 分类查询类型
+   - 记录查询复杂度
+   - 存储执行信息
+   - 生成意图摘要
+
+**章节来源**
+- [vectorStore.js:1-621](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L621)
 
 ### 长期记忆管理模块
 
@@ -129,30 +200,6 @@ E --> L
 
 **章节来源**
 - [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
-
-### 向量存储模块
-
-向量存储模块基于LanceDB实现，提供语义相似度搜索功能。该模块存储Schema信息和查询历史的向量表示，支持高效的语义检索。
-
-#### 核心功能
-
-1. **Schema向量存储**：
-   - 表结构向量化
-   - 字段信息向量化
-   - 语义相似度搜索
-
-2. **查询历史向量存储**：
-   - 用户查询向量化
-   - 历史查询相似度检索
-   - 相似查询推荐
-
-3. **向量数据库管理**：
-   - 自动初始化
-   - 数据统计
-   - 清理和维护
-
-**章节来源**
-- [vectorStore.js:1-621](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L621)
 
 ### 记忆维护模块
 
@@ -191,6 +238,7 @@ subgraph "业务逻辑层"
 CORE[核心引擎]
 MEM[记忆系统]
 SCHEMA[Schema管理]
+SUM[对话摘要]
 end
 subgraph "数据持久化层"
 DB[SQLite数据库]
@@ -207,17 +255,19 @@ API --> MEM
 API --> SCHEMA
 CORE --> DB
 CORE --> LLM
+CORE --> SUM
 MEM --> DB
 MEM --> VDB
 SCHEMA --> DB
 SCHEMA --> VDB
 CORE --> DS
 MEM --> FS
+SUM --> LLM
 ```
 
 **图表来源**
 - [app.js:78-158](file://NL2SQL/backend/src/app.js#L78-L158)
-- [nl2sqlEngine.js:1-800](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L800)
+- [nl2sqlEngine.js:1-2442](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2442)
 
 系统架构特点：
 
@@ -225,12 +275,13 @@ MEM --> FS
 2. **可扩展性**：支持插件式扩展和自定义工具
 3. **容错性**：具备优雅降级和错误处理机制
 4. **性能优化**：采用缓存、向量化等技术提升性能
+5. **智能压缩**：对话历史自动压缩，优化上下文管理
 
 ## 详细组件分析
 
 ### NL2SQL核心引擎
 
-NL2SQL核心引擎是系统的大脑，负责自然语言到SQL的完整转换流程。
+**更新** NL2SQL核心引擎现已集成智能对话摘要功能，在处理长对话时自动进行历史压缩，优化上下文管理和性能。
 
 #### 意图识别流程
 
@@ -238,13 +289,17 @@ NL2SQL核心引擎是系统的大脑，负责自然语言到SQL的完整转换�
 sequenceDiagram
 participant U as 用户
 participant E as 引擎
+participant S as 对话摘要
 participant L as LLM服务
 participant M as 长期记忆
-participant S as Schema加载器
+participant V as 向量存储
 participant D as 数据库
 U->>E : 输入自然语言查询
+E->>E : 检查对话轮数
+E->>S : 智能压缩历史如需要
+S-->>E : 返回压缩后的历史
 E->>M : 加载用户偏好
-E->>S : 获取Schema信息
+E->>V : 获取Schema信息
 E->>L : 分析查询意图
 L-->>E : 返回意图分析结果
 E->>E : 实体解析和映射
@@ -255,32 +310,19 @@ E->>M : 存储查询偏好
 ```
 
 **图表来源**
-- [nl2sqlEngine.js:311-567](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L311-L567)
+- [nl2sqlEngine.js:1865-1896](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1865-L1896)
 
-#### 实体解析机制
+#### 对话历史压缩流程
 
-系统实现了智能的实体解析机制，能够处理用户提供的模糊描述并解析为具体ID。
+系统在对话轮数达到阈值时自动触发压缩：
 
-```mermaid
-flowchart TD
-A[用户输入] --> B{是否包含实体描述}
-B --> |是| C[LLM识别实体映射]
-B --> |否| D[检查历史查询]
-C --> E{是否找到映射}
-E --> |是| F[解析为具体ID]
-E --> |否| G[回退到硬编码列表]
-D --> H[检查长期记忆]
-H --> I{是否有历史映射}
-I --> |是| F
-I --> |否| G
-F --> J[生成查询意图]
-G --> J
-```
-
-**更新** 新增平台术语解析功能，能够识别"新平台"/"老平台"等术语并映射到相应的数据库标识。
+1. **轮数检查**：检测当前对话轮数是否达到触发阈值（默认8轮）
+2. **智能压缩**：使用summarizer模块进行历史压缩
+3. **缓存优化**：检查缓存避免重复生成摘要
+4. **历史融合**：将摘要与近期对话融合
 
 **章节来源**
-- [nl2sqlEngine.js:1-2010](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2010)
+- [nl2sqlEngine.js:1850-2049](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1850-L2049)
 
 ### Schema元数据管理系统
 
@@ -366,6 +408,36 @@ SESSIONS ||--o{ QUERY_HISTORY : contains
 **章节来源**
 - [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
 
+### 增强向量存储功能
+
+**更新** 向量存储模块现已增强，新增查询分类和重要性评分机制，提供更精细的查询管理和检索优化。
+
+#### 查询分类机制
+
+系统能够智能识别和分类不同类型的查询：
+
+1. **定义/解释查询**：识别"什么是"、"定义"、"意思"等关键词
+2. **对比查询**：识别"对比"、"比较"、"vs"等关键词
+3. **趋势查询**：识别"趋势"、"走势"、"变化"等关键词
+4. **澄清回复**：识别简短回复和确认信息
+5. **跟进查询**：识别依赖上下文的"那"、"还有"等开头
+6. **新话题**：识别长查询且高置信度的新话题
+
+#### 重要性评分算法
+
+重要性评分综合考虑多个因素：
+
+1. **基础分**：0.5（所有查询的基础价值）
+2. **成功状态**：成功查询额外+0.1
+3. **维度数量**：每增加一个维度最多+0.15
+4. **指标数量**：每增加一个指标最多+0.15
+5. **筛选条件**：每增加一个筛选条件最多+0.1
+6. **置信度**：高置信度查询额外+0.1
+7. **上下文查询**：需要理解上下文的查询额外+0.05
+
+**章节来源**
+- [vectorStore.js:38-193](file://NL2SQL/backend/src/memory/vectorStore.js#L38-L193)
+
 ### 长期记忆增强功能
 
 **更新** 系统新增了强大的平台术语学习功能，能够智能识别和学习用户对平台术语的个性化映射。
@@ -403,28 +475,35 @@ C[vectordb] --> D[LanceDB客户端]
 E[sqlite3] --> F[SQLite数据库]
 G[dayjs] --> H[时间处理]
 I[node-cron] --> J[定时任务]
+K[llmService] --> L[LLM服务]
+M[tokenBudget] --> N[Token预算管理]
 end
 subgraph "内部模块依赖"
-K[app.js] --> L[config.js]
-K --> M[database.js]
-K --> N[vectorStore.js]
-K --> O[routes.js]
-P[nl2sqlEngine.js] --> Q[schemaLoader.js]
-P --> R[longTermMemory.js]
-P --> S[database.js]
-R --> T[database.js]
-R --> U[llmService.js]
-R --> V[config.js]
-W[memoryMaintenance.js] --> X[database.js]
-W --> Y[config.js]
-Z[schemaLoader.js] --> AA[vectorStore.js]
-Z --> AB[llmService.js]
+O[app.js] --> P[config.js]
+O --> Q[database.js]
+O --> R[vectorStore.js]
+O --> S[routes.js]
+T[nl2sqlEngine.js] --> U[schemaLoader.js]
+T --> V[longTermMemory.js]
+T --> W[summarizer.js]
+T --> X[database.js]
+Y[summarizer.js] --> Z[llmService.js]
+Y --> AA[tokenBudget.js]
+V --> AB[database.js]
+V --> AC[llmService.js]
+V --> AD[config.js]
+AE[memoryMaintenance.js] --> AF[database.js]
+AE --> AG[config.js]
+AH[schemaLoader.js] --> AI[vectorStore.js]
+AH --> AJ[llmService.js]
+AK[vectorStore.js] --> AL[config.js]
 end
 subgraph "配置依赖"
-AC[config.js] --> AD[LLM配置]
-AC --> AE[数据库配置]
-AC --> AF[向量数据库配置]
-AC --> AG[安全配置]
+AM[config.js] --> AN[LLM配置]
+AM --> AO[数据库配置]
+AM --> AP[向量数据库配置]
+AM --> AQ[安全配置]
+AM --> AR[对话摘要配置]
 end
 ```
 
@@ -439,6 +518,7 @@ end
 1. **LLM API集成**：支持OpenAI兼容的API服务
 2. **Embedding服务**：文本向量化处理
 3. **向量检索**：基于语义相似度的查询推荐
+4. **对话摘要**：LLM驱动的对话历史压缩
 
 **章节来源**
 - [config.js:60-87](file://NL2SQL/backend/src/core/config.js#L60-L87)
@@ -452,6 +532,7 @@ end
 1. **Schema缓存**：Schema元数据缓存，支持过期检查
 2. **向量缓存**：向量数据库连接缓存
 3. **查询结果缓存**：常用查询结果缓存
+4. **摘要缓存**：对话摘要内存缓存（默认30分钟过期）
 
 ### 性能优化措施
 
@@ -459,12 +540,14 @@ end
 2. **索引优化**：数据库表建立适当的索引
 3. **内存管理**：合理控制内存使用，避免内存泄漏
 4. **异步处理**：大量使用Promise和async/await
+5. **智能压缩**：对话历史自动压缩，减少Token消耗
 
 ### 扩展性设计
 
 1. **插件系统**：支持动态加载自定义工具
 2. **配置驱动**：通过配置文件控制各种行为
 3. **模块化架构**：易于添加新功能和修改现有功能
+4. **环境变量支持**：便于不同环境的配置管理
 
 ## 故障排除指南
 
@@ -486,6 +569,7 @@ end
 **问题症状**：
 - 意图识别功能异常
 - 偏好提取失败
+- 对话摘要生成失败
 
 **解决方案**：
 1. 检查LLM API密钥配置
@@ -502,6 +586,18 @@ end
 1. 检查SQLite数据库文件权限
 2. 验证数据库文件完整性
 3. 确认磁盘空间充足
+
+#### 对话摘要缓存问题
+
+**问题症状**：
+- 摘要缓存失效
+- 重复生成摘要
+- 内存占用过高
+
+**解决方案**：
+1. 检查缓存过期时间设置
+2. 验证缓存清理机制
+3. 监控内存使用情况
 
 **章节来源**
 - [logger.js:283-293](file://NL2SQL/backend/src/utils/logger.js#L283-L293)
@@ -528,8 +624,10 @@ NL2SQL长期记忆系统是一个功能完整、架构清晰的智能数据查�
 2. **可扩展性强**：模块化设计支持功能扩展和定制
 3. **性能优异**：采用向量化和缓存技术提升查询效率
 4. **可靠性强**：完善的错误处理和监控机制
+5. **智能压缩**：对话历史自动压缩，优化上下文管理
+6. **精细分类**：查询分类和重要性评分机制
 
-**更新** 新增的平台术语学习功能大大增强了系统的个性化服务能力，现在系统能够智能识别和学习用户对"新平台"/"老平台"等术语的个性化映射，支持datasource类型的字段别名学习。
+**更新** 新增的智能对话摘要功能大大增强了系统的长期对话管理能力，现在系统能够自动压缩长时间对话历史，将早期对话压缩为摘要，保留近期对话原文。增强的向量存储功能提供了更精细的查询分类和重要性评分，支持更智能的查询管理和检索优化。
 
 ### 技术特色
 
@@ -538,6 +636,9 @@ NL2SQL长期记忆系统是一个功能完整、架构清晰的智能数据查�
 3. **智能偏好学习**：自动识别和存储用户查询习惯
 4. **分级保留策略**：智能清理过期记忆，优化存储空间
 5. **平台术语学习**：支持用户个性化平台术语映射
+6. **对话历史压缩**：LLM驱动的智能对话管理
+7. **查询分类机制**：精细化的查询类型识别
+8. **重要性评分**：基于多因素的查询价值评估
 
 ### 发展方向
 
@@ -545,5 +646,6 @@ NL2SQL长期记忆系统是一个功能完整、架构清晰的智能数据查�
 2. **多模态支持**：支持图片、语音等多种输入方式
 3. **实时协作**：支持多用户实时协作查询
 4. **边缘计算**：支持在边缘设备上部署
+5. **智能缓存优化**：进一步优化缓存策略和内存使用
 
 该系统为自然语言数据查询提供了一个完整的解决方案，具有良好的实用价值和推广前景。

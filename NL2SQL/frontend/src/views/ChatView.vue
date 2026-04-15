@@ -109,7 +109,7 @@
           :rows="4"
           placeholder="输入您的数据查询需求，例如：查一下上个月的销售额"
           resize="none"
-          @keydown.enter.prevent="handleEnter"
+          @keydown.enter="handleEnter"
         />
         <div class="input-actions">
           <el-button 
@@ -218,11 +218,13 @@ function sendMessage() {
  * Enter发送，Shift+Enter换行
  */
 function handleEnter(e) {
-  // 如果按下了Shift键，允许换行
+  // 如果按下了Shift键，允许换行（不阻止默认行为）
   if (e.shiftKey) {
     return
   }
-  // 否则发送消息
+  // 阻止默认行为（防止插入换行符）
+  e.preventDefault()
+  // 发送消息
   sendMessage()
 }
 

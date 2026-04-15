@@ -261,6 +261,8 @@ export const useSessionStore = defineStore('session', () => {
             data: data.data.data
           }
         })
+        // 刷新会话列表以更新标题（如果是第一条消息，后端会更新标题）
+        loadSessions()
         break
         
       case 'clarify':
