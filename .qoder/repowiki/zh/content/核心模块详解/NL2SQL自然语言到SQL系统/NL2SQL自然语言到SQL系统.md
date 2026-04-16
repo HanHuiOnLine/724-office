@@ -31,12 +31,11 @@
 
 ## 更新摘要
 **变更内容**
-- 新增向量评估系统，提供完整的监控和质量保证能力
-- 实时向量搜索质量评估功能
-- 历史查询相似性测试和统计跟踪机制
-- 增强的运行时统计和报告功能
-- 新增评估配置管理和阈值控制
-- 完善的前端评估界面和API集成
+- 实现表级向量化而非字段级向量化，显著提升向量检索效率
+- 引入智能搜索策略，基于查询意图进行表级重排序
+- 优化Schema加载和向量化系统，增强元数据管理和特征提取
+- 完善向量评估系统，支持表级向量的质量评估和统计监控
+- 增强长期记忆系统的即时学习能力，支持澄清轮中的映射提取
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -76,6 +75,10 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **实时统计跟踪**：向量检索命中率和记忆命中率统计
 - **质量评估接口**：Schema向量化质量和查询相似度评估
 - **阈值控制机制**：可配置的质量评估阈值和标准
+- **表级向量化**：从字段级向量化升级为表级向量化，提升检索效率
+- **智能搜索策略**：基于查询意图的表级重排序算法
+- **增强元数据管理**：表级向量包含域标签、数据类型等元数据
+- **核心特征词提取**：从表名、描述和字段中提取强动作特征词
 
 ## 项目结构
 
@@ -228,11 +231,11 @@ BE4 --> DS2
 **章节来源**
 - [nl2sqlEngine.js:1-2010](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2010)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
-- [schemaLoader.js:1-933](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L933)
+- [schemaLoader.js:1-1071](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L1071)
 - [vectorStore.js:1-759](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L759)
 - [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
 - [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
-- [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
+- [longTermMemory.js:1-1141](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1141)
 - [memoryMaintenance.js:1-415](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L1-L415)
 - [summarizer.js:1-518](file://NL2SQL/backend/src/memory/summarizer.js#L1-L518)
 - [tokenBudget.js:1-435](file://NL2SQL/backend/src/utils/tokenBudget.js#L1-L435)
@@ -411,10 +414,10 @@ Context-->>Engine : 上下文增强结果
 Engine->>LLM : 分析用户意图
 LLM-->>Engine : 意图分析结果
 Engine->>Schema : 搜索相关表(含平台上下文)
-Schema->>Vector : 执行向量搜索
+Schema->>Vector : 执行智能搜索(表级向量)
 Vector->>Eval : 记录向量搜索统计
 Eval-->>Vector : 返回统计结果
-Vector-->>Schema : 搜索结果
+Vector-->>Schema : 智能重排序结果
 Schema->>CompactSchema : 生成紧凑Schema输出
 CompactSchema->>FieldFilter : 应用智能字段过滤
 FieldFilter-->>CompactSchema : 过滤后的字段
@@ -508,9 +511,9 @@ flowchart TD
 Start([开始表选择]) --> CheckContext{检查上下文}
 CheckContext --> |有上下文| EnhanceQuery[增强查询文本]
 CheckContext --> |无上下文| DirectSearch[直接搜索]
-EnhanceQuery --> VectorSearch[向量语义搜索]
-DirectSearch --> VectorSearch
-VectorSearch --> CheckResults{检查结果}
+EnhanceQuery --> SmartSearch[智能搜索(表级向量)]
+DirectSearch --> VectorSearch[向量语义搜索]
+SmartSearch --> CheckResults{检查结果}
 CheckResults --> |成功| FilterResults[过滤结果]
 CheckResults --> |失败| KeywordMatch[关键词匹配]
 FilterResults --> DataSourcePriority[数据源优先级]
@@ -525,7 +528,8 @@ KeywordMatch --> LimitResults
 
 优化的表选择逻辑包括：
 - **上下文增强**：根据game_id和datasource增强查询
-- **向量搜索优先**：优先使用语义搜索，失败时回退到关键词匹配
+- **智能搜索优先**：优先使用语义搜索，失败时回退到关键词匹配
+- **表级向量搜索**：使用优化后的表级向量进行高效检索
 - **数据源优先**：优先匹配对应数据源的表
 - **平台智能匹配**：根据game_id推断平台类型并匹配相应表
 - **结果限制**：限制返回表数量，避免过度处理
@@ -759,8 +763,8 @@ EvaluationSystem --> TestDatasets : "使用"
 ```mermaid
 stateDiagram-v2
 [*] --> 生成查询向量
-生成查询向量 --> 执行向量搜索
-执行向量搜索 --> 智能重排序
+生成查询向量 --> 执行智能搜索
+执行智能搜索 --> 智能重排序
 智能重排序 --> 提取表名
 提取表名 --> 计算精度指标
 计算精度指标 --> 记录评估结果
@@ -1050,6 +1054,8 @@ class SchemaLoader {
 +getSchemaSummary() string
 +getTableSchemaDetail(tableNames) string
 +getTableSchemaDetailCompact(tableNames, intent) string
++buildTableRepresentation(table) Object
++extractKeyFeatures(table) Array
 }
 class SchemaData {
 +version : string
@@ -1064,6 +1070,7 @@ class Vectorization {
 +vectorizeSchema() Promise~void~
 +addSchemaVectors(texts, vectors, metadataList) Promise~void~
 +searchSchema(queryVector, topK) Promise~Array~
++searchSchemaSmart(queryVector, queryText, topK) Promise~Array~
 }
 class PlatformContext {
 +gameId : string
@@ -1081,20 +1088,68 @@ SchemaLoader --> PlatformContext : "使用"
 - [schemaLoader.js:195-290](file://NL2SQL/backend/src/core/schemaLoader.js#L195-L290)
 - [schemaLoader.js:390-407](file://NL2SQL/backend/src/core/schemaLoader.js#L390-L407)
 
-#### 语义搜索功能
+#### 表级向量化实现
 
-**更新**Schema加载器实现了智能的语义搜索，支持平台上下文：
+**更新**Schema加载器实现了革命性的表级向量化：
 
-1. **向量搜索**：使用LanceDB进行高效的向量相似度搜索
-2. **关键词匹配**：作为向量搜索的后备方案
-3. **平台增强**：根据game_id推断平台类型并增强查询
-4. **数据源优先**：根据datasource上下文优先匹配表
-5. **混合排序**：结合语义相似度和关键词匹配结果
+```mermaid
+flowchart TD
+Start([开始表级向量化]) --> CheckRevectorize{检查强制重新向量化}
+CheckRevectorize --> |是| ClearVectors[清空现有向量]
+CheckRevectorize --> |否| CheckExisting{检查已有向量}
+CheckExisting --> |有| SkipVectorization[跳过向量化]
+CheckExisting --> |无| BuildRepresentations[构建表级表征]
+SkipVectorization --> End([完成])
+ClearVectors --> BuildRepresentations
+BuildRepresentations --> ExtractFeatures[提取核心特征词]
+ExtractFeatures --> BuildMetadata[构建元数据]
+BuildMetadata --> GenerateEmbeddings[生成向量]
+GenerateEmbeddings --> StoreVectors[存储向量]
+StoreVectors --> End
+```
+
+**图表来源**
+- [schemaLoader.js:201-281](file://NL2SQL/backend/src/core/schemaLoader.js#L201-L281)
+
+表级向量化的核心改进：
+- **表级表征**：每个表生成一个向量，包含域标签、数据类型、核心特征词
+- **元数据增强**：向量元数据包含scope、data_type、key_features等标签
+- **特征词提取**：从表名、描述和关键字段中提取强动作特征词
+- **批量处理**：支持批量生成和存储向量，提高效率
+
+#### 智能搜索功能
+
+**新增**智能搜索功能实现了基于查询意图的重排序：
+
+```mermaid
+stateDiagram-v2
+[*] --> 意图识别
+意图识别 --> 执行向量搜索
+执行向量搜索 --> 结果重排序
+结果重排序 --> 优先级计算
+优先级计算 --> 限制返回数量
+限制返回数量 --> 记录统计
+记录统计 --> [*]
+```
+
+**图表来源**
+- [vectorStore.js:450-536](file://NL2SQL/backend/src/memory/vectorStore.js#L450-L536)
+
+智能搜索策略包括：
+1. **游戏提及检测**：识别查询中的游戏关键词
+2. **优先级计算**：根据游戏提及、平台类型、数据类型等因素计算优先级
+3. **距离归一化**：将向量距离转换为优先级分数
+4. **结果重排序**：按优先级分数排序返回结果
+5. **统计记录**：记录智能搜索的统计信息
 
 **章节来源**
 - [schemaLoader.js:401-407](file://NL2SQL/backend/src/core/schemaLoader.js#L401-L407)
 - [schemaLoader.js:429-519](file://NL2SQL/backend/src/core/schemaLoader.js#L429-L519)
 - [schemaLoader.js:439-450](file://NL2SQL/backend/src/core/schemaLoader.js#L439-L450)
+- [schemaLoader.js:201-281](file://NL2SQL/backend/src/core/schemaLoader.js#L201-L281)
+- [schemaLoader.js:296-336](file://NL2SQL/backend/src/core/schemaLoader.js#L296-L336)
+- [schemaLoader.js:347-427](file://NL2SQL/backend/src/core/schemaLoader.js#L347-L427)
+- [vectorStore.js:450-536](file://NL2SQL/backend/src/memory/vectorStore.js#L450-L536)
 
 ### 向量存储系统
 
@@ -1654,6 +1709,7 @@ IM18 --> IM7
 11. **紧凑Schema缓存**：紧凑Schema输出缓存
 12. **字段过滤缓存**：智能字段过滤结果缓存
 13. **评估统计缓存**：评估统计数据缓存，避免重复计算
+14. **表级向量缓存**：表级向量结果缓存，提升搜索性能
 
 ### 并发处理
 
@@ -1671,6 +1727,7 @@ IM18 --> IM7
 12. **字段过滤优化**：智能字段过滤采用缓存机制
 13. **评估异步执行**：质量评估采用异步方式
 14. **统计异步更新**：运行时统计采用异步更新
+15. **表级向量异步**：表级向量生成采用异步处理
 
 ### 内存管理
 
@@ -1687,6 +1744,7 @@ IM18 --> IM7
 11. **紧凑Schema缓存**：紧凑Schema结果缓存
 12. **字段过滤缓存**：智能字段过滤结果缓存
 13. **评估统计内存管理**：运行时统计采用内存缓存
+14. **表级向量内存管理**：表级向量采用内存缓存
 
 ### 评估系统性能优化
 
@@ -1699,6 +1757,7 @@ IM18 --> IM7
 5. **批量处理**：多个评估任务批量执行
 6. **资源限制**：评估过程中的资源使用限制
 7. **错误恢复**：评估失败时的自动恢复机制
+8. **表级向量优化**：表级向量搜索采用智能重排序
 
 ## 故障排除指南
 
@@ -1977,6 +2036,23 @@ IM18 --> IM7
 - 检查前端错误日志
 - 重新发起网络请求
 
+#### 18. 表级向量化问题
+
+**症状**：表级向量化失败或性能问题
+
+**排查步骤**：
+1. 检查向量维度配置
+2. 验证表级表征生成
+3. 查看特征词提取
+4. 检查向量存储状态
+
+**解决方法**：
+- 调整向量维度配置
+- 验证表级表征逻辑
+- 检查特征词提取算法
+- 重建向量存储
+- 清理表级向量缓存
+
 ### 日志分析
 
 系统提供了详细的日志记录功能：
@@ -2008,6 +2084,8 @@ LOG_MAX_FILES=5
 - **评估结果**：记录评估的具体结果和指标
 - **统计更新**：记录运行时统计的更新
 - **错误处理**：记录评估过程中的错误和异常
+- **表级向量化**：记录表级向量生成和存储过程
+- **智能搜索**：记录智能搜索的执行和重排序过程
 
 **章节来源**
 - [logger.js:28-41](file://NL2SQL/backend/src/utils/logger.js#L28-L41)
@@ -2040,6 +2118,11 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 18. **实时统计跟踪**：向量检索命中率和记忆命中率统计
 19. **质量评估接口**：Schema向量化质量和查询相似度评估
 20. **阈值控制机制**：可配置的质量评估阈值和标准
+21. **表级向量化**：从字段级向量化升级为表级向量化，显著提升检索效率
+22. **智能搜索策略**：基于查询意图的表级重排序算法
+23. **增强元数据管理**：表级向量包含域标签、数据类型等元数据
+24. **核心特征词提取**：从表名、描述和字段中提取强动作特征词
+25. **评估系统增强**：支持表级向量的质量评估和统计监控
 
 ### 功能特色
 
@@ -2063,6 +2146,11 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 18. **向量评估系统**：实时监控和质量保证能力
 19. **统计报告功能**：详细的运行时统计和报告
 20. **阈值配置管理**：灵活的质量评估标准设置
+21. **表级向量化优化**：提升向量检索效率和准确性
+22. **智能搜索重排序**：基于查询意图的表级优先级计算
+23. **元数据标签增强**：表级向量包含域标签和数据类型
+24. **特征词提取优化**：强动作特征词提升检索区分度
+25. **评估系统完善**：支持表级向量的质量评估
 
 ### 应用价值
 
@@ -2094,5 +2182,10 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 增强向量评估系统的实时性
 - 优化统计跟踪的准确性
 - 扩展评估阈值的自适应能力
+- 优化表级向量化算法
+- 增强智能搜索的准确性
+- 扩展元数据标签体系
+- 优化特征词提取算法
+- 增强评估系统的可扩展性
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

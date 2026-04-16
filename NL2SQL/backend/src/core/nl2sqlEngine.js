@@ -379,6 +379,8 @@ async function resolveEntitiesInIntent(intent, userQuery, userId) {
     }
     
     // 2. 从长期记忆加载用户学习的字段别名
+    const matchedEntities = [];
+    
     if (userId) {
       try {
         const fieldAliases = await database.getFieldAliases(userId);
@@ -416,18 +418,13 @@ async function resolveEntitiesInIntent(intent, userQuery, userId) {
             if (gameId) {
               logger.info(`[实体解析] ✅ 使用长期记忆映射: ${content.user_term} -> game_id=${gameId}`);
               
-              if (!intent.filters) {
-                intent.filters = [];
-              }
-              
-              intent.filters.push({
+              matchedEntities.push({
                 field: 'game_id',
                 op: '=',
                 value: gameId,
-                original_name: content.user_term
+                original_name: content.user_term,
+                matchSource: 'long_term_memory'
               });
-              
-              return; // 找到一个就返回
             }
           }
         }
@@ -437,45 +434,111 @@ async function resolveEntitiesInIntent(intent, userQuery, userId) {
     }
     
     // 3. 回退：尝试从数据库实体表模糊匹配（兜底）
-    // 不再使用硬编码列表，而是查询数据库
+    // 【优化】使用单次查询替代循环多次查询
     try {
       const db = database.getConnection ? database.getConnection() : null;
-      if (db) {
+      if (db && matchedEntities.length === 0) {
         // 从游戏列表表中模糊搜索 - 提取查询中的潜在游戏名（2-10个字符）
         const potentialNames = extractPotentialEntityNames(userQuery);
         
-        for (const name of potentialNames) {
+        if (potentialNames.length > 0) {
+          // 【优化】构建单次查询，使用多个LIKE条件
+          const likeConditions = potentialNames.map(() => 'game_name LIKE ?').join(' OR ');
+          const likeParams = potentialNames.map(name => `%${name}%`);
+          
           const results = await db.query(
             `SELECT game_id as id, game_name as name 
              FROM game_list 
-             WHERE game_name LIKE ? 
-             LIMIT 3`,
-            [`%${name}%`]
+             WHERE ${likeConditions}
+             LIMIT 20`,
+            likeParams
           );
           
           if (results && results.length > 0) {
-            // 找到匹配的游戏，使用第一个
-            const matchedGame = results[0];
-            logger.info(`[实体解析] 从数据库模糊匹配游戏: ${matchedGame.name} -> game_id=${matchedGame.id}`);
-            
-            if (!intent.filters) {
-              intent.filters = [];
+            // 【优化】在内存中匹配最佳结果，处理歧义
+            for (const name of potentialNames) {
+              const nameLower = name.toLowerCase();
+              
+              // 筛选包含该名称的候选
+              const candidates = results.filter(r => 
+                r.name.toLowerCase().includes(nameLower)
+              );
+              
+              if (candidates.length === 1) {
+                // 唯一匹配，直接使用
+                matchedEntities.push({
+                  field: 'game_id',
+                  op: '=',
+                  value: String(candidates[0].id),
+                  original_name: candidates[0].name,
+                  matchSource: 'database_fuzzy'
+                });
+              } else if (candidates.length > 1) {
+                // 多个候选，检查是否有精确匹配
+                const exactMatch = candidates.find(r => 
+                  r.name.toLowerCase() === nameLower
+                );
+                
+                if (exactMatch) {
+                  matchedEntities.push({
+                    field: 'game_id',
+                    op: '=',
+                    value: String(exactMatch.id),
+                    original_name: exactMatch.name,
+                    matchSource: 'database_exact'
+                  });
+                } else {
+                  // 【歧义处理】多个相似匹配，标记需要澄清
+                  logger.info(`[实体解析] ⚠️ 发现歧义匹配: "${name}" 对应多个游戏`, {
+                    candidates: candidates.slice(0, 3).map(c => ({id: c.id, name: c.name}))
+                  });
+                  
+                  if (!intent.clarification_needed) {
+                    intent.clarification_needed = [];
+                  }
+                  intent.clarification_needed.push({
+                    type: 'ambiguous_entity',
+                    entityType: 'game',
+                    userTerm: name,
+                    options: candidates.slice(0, 3).map(c => ({
+                      id: c.id,
+                      name: c.name,
+                      value: String(c.id)
+                    }))
+                  });
+                }
+              }
             }
-            
-            intent.filters.push({
-              field: 'game_id',
-              op: '=',
-              value: String(matchedGame.id),
-              original_name: matchedGame.name,
-              matchSource: 'database_fuzzy'
-            });
-            
-            return; // 找到一个就返回
           }
         }
       }
     } catch (error) {
       logger.debug('[实体解析] 数据库模糊匹配失败:', error.message);
+    }
+    
+    // 将匹配的实体添加到filters
+    if (matchedEntities.length > 0) {
+      if (!intent.filters) {
+        intent.filters = [];
+      }
+      
+      // 去重：避免同一game_id被添加多次
+      const existingGameIds = new Set(
+        intent.filters
+          .filter(f => f.field === 'game_id')
+          .map(f => f.value)
+      );
+      
+      for (const entity of matchedEntities) {
+        if (!existingGameIds.has(entity.value)) {
+          intent.filters.push(entity);
+          existingGameIds.add(entity.value);
+        }
+      }
+      
+      logger.info(`[实体解析] ✅ 共解析 ${matchedEntities.length} 个实体`, {
+        entities: matchedEntities.map(e => ({name: e.original_name, id: e.value}))
+      });
     }
     
   } catch (error) {

@@ -19,13 +19,10 @@
 
 ## 更新摘要
 **变更内容**
-- 新增智能对话摘要系统，提供LLM驱动的长期对话管理
-- 增强向量存储功能，新增查询分类和重要性评分机制
-- 在NL2SQL引擎中集成对话历史压缩功能
-- 新增平台术语学习功能，支持用户对"新平台"/"老平台"等术语的个性化映射
-- 增强datasource类型的字段别名学习能力
-- 更新LLM智能分析功能，支持更精细的偏好提取
-- 改进实体解析机制，支持平台术语的自动识别和映射
+- 优化用户偏好管理，增强LLM智能分析功能，支持更精细的偏好提取
+- 改进字段别名映射逻辑，新增datasource类型映射支持
+- 增强游戏类型映射支持，优化平台术语学习机制
+- 优化数据库访问模式，改进向量存储和查询历史管理
 
 ## 目录
 1. [简介](#简介)
@@ -164,7 +161,7 @@ J --> N
    - 生成意图摘要
 
 **章节来源**
-- [vectorStore.js:1-621](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L621)
+- [vectorStore.js:1-759](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L759)
 
 ### 长期记忆管理模块
 
@@ -199,7 +196,7 @@ J --> N
    - 支持显式声明的映射关系
 
 **章节来源**
-- [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
+- [longTermMemory.js:1-1141](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1141)
 
 ### 记忆维护模块
 
@@ -267,7 +264,7 @@ SUM --> LLM
 
 **图表来源**
 - [app.js:78-158](file://NL2SQL/backend/src/app.js#L78-L158)
-- [nl2sqlEngine.js:1-2442](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2442)
+- [nl2sqlEngine.js:1-2492](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2492)
 
 系统架构特点：
 
@@ -347,7 +344,7 @@ I --> J[返回相关表]
 - [schemaLoader.js:195-290](file://NL2SQL/backend/src/core/schemaLoader.js#L195-L290)
 
 **章节来源**
-- [schemaLoader.js:1-751](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L751)
+- [schemaLoader.js:1-1071](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L1071)
 
 ### 数据库管理系统
 
