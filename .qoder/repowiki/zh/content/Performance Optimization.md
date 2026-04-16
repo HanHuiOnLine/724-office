@@ -14,8 +14,18 @@
 - [llmService.js](file://NL2SQL/backend/src/core/llmService.js)
 - [memoryMaintenance.js](file://NL2SQL/backend/src/memory/memoryMaintenance.js)
 - [logger.js](file://NL2SQL/backend/src/utils/logger.js)
+- [memoryQueue.js](file://NL2SQL/backend/src/memory/memoryQueue.js)
+- [summarizer.js](file://NL2SQL/backend/src/memory/summarizer.js)
 - [package.json](file://NL2SQL/backend/package.json)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增异步记忆存储队列性能优化章节
+- 更新对话摘要模块为智能摘要触发机制
+- 新增Schema增量更新性能优化章节
+- 更新长期记忆系统为异步存储架构
+- 增强上下文管理的性能考量
 
 ## 目录
 1. [简介](#简介)
@@ -31,6 +41,8 @@
 ## 简介
 本项目是一个基于自然语言到SQL转换的查询服务，重点围绕性能优化展开。通过对NL2SQL引擎、向量数据库、SQLite持久化、Token预算管理、长期记忆系统以及自修复机制的深入分析，本文档总结了关键性能优化策略与实践，旨在帮助开发者在保证功能完整性的同时提升系统吞吐量、降低延迟并增强稳定性。
 
+**更新** 本版本新增了异步队列、智能摘要触发、增量更新等先进性能优化技术，显著提升了系统的并发处理能力和响应速度。
+
 ## 项目结构
 后端采用模块化设计，核心模块包括：
 - 应用入口与初始化：负责环境加载、中间件配置、模块初始化与优雅关闭
@@ -38,7 +50,7 @@
 - 向量存储：基于LanceDB的Schema与查询历史向量化检索
 - 数据库：SQLite持久化与迁移、事务管理、索引优化
 - 上下文管理：Token预算估算与压缩、对话摘要
-- 长期记忆：用户偏好提取与存储、分级保留策略
+- 长期记忆：用户偏好提取与存储、分级保留策略、异步存储队列
 - 自修复：定时任务、会话清理、统计收集与健康报告
 - LLM服务：API通信封装、重试机制、流式响应支持
 - 评估系统：向量化质量与记忆命中率统计
@@ -60,8 +72,10 @@ end
 subgraph "记忆与检索"
 LT_MEM["长期记忆<br/>longTermMemory.js"]
 MEM_MAINT["记忆维护<br/>memoryMaintenance.js"]
+MEM_QUEUE["记忆队列<br/>memoryQueue.js"]
 VEC_STORE["向量存储<br/>vectorStore.js"]
 EVAL["评估系统<br/>evaluation.js"]
+SUMMARIZER["对话摘要<br/>summarizer.js"]
 end
 subgraph "数据层"
 SQLITE["SQLite数据库<br/>database.js"]
@@ -80,6 +94,7 @@ ENGINE --> SQLGEN
 ENGINE --> FORMAT
 ENGINE --> LT_MEM
 LT_MEM --> MEM_MAINT
+LT_MEM --> MEM_QUEUE
 ENGINE --> VEC_STORE
 VEC_STORE --> EVAL
 ENGINE --> SQLITE
@@ -102,6 +117,8 @@ SELF_REPAIR --> VEC_STORE
 - [selfRepair.js:1-489](file://NL2SQL/backend/src/core/selfRepair.js#L1-L489)
 - [config.js:1-398](file://NL2SQL/backend/src/core/config.js#L1-L398)
 - [logger.js:1-442](file://NL2SQL/backend/src/utils/logger.js#L1-L442)
+- [memoryQueue.js:1-217](file://NL2SQL/backend/src/memory/memoryQueue.js#L1-L217)
+- [summarizer.js:1-530](file://NL2SQL/backend/src/memory/summarizer.js#L1-L530)
 
 **章节来源**
 - [app.js:1-238](file://NL2SQL/backend/src/app.js#L1-L238)
@@ -113,10 +130,12 @@ SELF_REPAIR --> VEC_STORE
 - 向量存储：基于LanceDB的Schema与查询历史向量化，支持智能搜索与重排序，提供统计与评估能力。
 - SQLite持久化：表结构设计与索引优化、迁移机制、事务管理与连接池配置，确保数据一致性与查询性能。
 - 上下文管理：Token预算估算与压缩、对话摘要、历史裁剪，防止LLM上下文溢出。
-- 长期记忆：用户偏好提取与存储、分级保留策略、相似模式合并，提升个性化体验。
+- 长期记忆：用户偏好提取与存储、分级保留策略、智能筛选与异步存储队列，提升个性化体验。
 - 自修复机制：定时任务、会话清理、统计收集与健康报告，保障系统长期稳定运行。
 - LLM服务：API通信封装、重试机制、超时控制与流式响应，提升外部依赖的可靠性。
 - 评估系统：向量化质量评估与记忆命中率统计，为性能优化提供数据支撑。
+
+**更新** 新增异步记忆存储队列模块，将所有存储操作异步化，避免阻塞主流程，显著提升并发性能。
 
 **章节来源**
 - [app.js:97-166](file://NL2SQL/backend/src/app.js#L97-L166)
@@ -128,6 +147,8 @@ SELF_REPAIR --> VEC_STORE
 - [selfRepair.js:60-125](file://NL2SQL/backend/src/core/selfRepair.js#L60-L125)
 - [llmService.js:222-299](file://NL2SQL/backend/src/core/llmService.js#L222-L299)
 - [evaluation.js:158-266](file://NL2SQL/backend/src/utils/evaluation.js#L158-L266)
+- [memoryQueue.js:1-217](file://NL2SQL/backend/src/memory/memoryQueue.js#L1-L217)
+- [summarizer.js:1-530](file://NL2SQL/backend/src/memory/summarizer.js#L1-L530)
 
 ## 架构概览
 系统采用分层架构，核心流程如下：
@@ -143,6 +164,7 @@ participant Server as "HTTP服务器<br/>app.js"
 participant Routes as "路由<br/>routes.js"
 participant Engine as "NL2SQL引擎<br/>nl2sqlEngine.js"
 participant LTM as "长期记忆<br/>longTermMemory.js"
+participant MQ as "记忆队列<br/>memoryQueue.js"
 participant VS as "向量存储<br/>vectorStore.js"
 participant DB as "SQLite数据库<br/>database.js"
 participant LLM as "LLM服务<br/>llmService.js"
@@ -155,17 +177,86 @@ Engine->>VS : 向量检索/智能搜索
 Engine->>DB : 执行SQL/查询历史
 Engine-->>Routes : 处理结果
 Routes-->>Client : SSE流式响应
+Note over LTM,MQ : 存储操作异步执行
 ```
 
 **图表来源**
 - [app.js:78-87](file://NL2SQL/backend/src/app.js#L78-L87)
 - [nl2sqlEngine.js:790-800](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L790-L800)
 - [longTermMemory.js:312-485](file://NL2SQL/backend/src/memory/longTermMemory.js#L312-L485)
+- [memoryQueue.js:46-66](file://NL2SQL/backend/src/memory/memoryQueue.js#L46-L66)
 - [vectorStore.js:450-536](file://NL2SQL/backend/src/memory/vectorStore.js#L450-L536)
 - [database.js:361-424](file://NL2SQL/backend/src/core/database.js#L361-L424)
 - [llmService.js:222-299](file://NL2SQL/backend/src/core/llmService.js#L222-L299)
 
 ## 详细组件分析
+
+### 异步记忆存储队列性能优化
+**新增** 异步记忆存储队列模块将所有记忆存储操作异步化，避免阻塞主流程，显著提升系统并发性能。
+
+- **批量处理**：采用100ms处理间隔和5条批量大小，平衡响应时间和吞吐量
+- **并行执行**：使用Promise.allSettled并行处理多个存储操作，提高效率
+- **队列管理**：提供队列状态监控、等待完成和清空队列等功能
+- **错误处理**：每个操作独立执行，失败不影响其他操作
+
+```mermaid
+flowchart TD
+Start(["开始"]) --> Enqueue["入队存储操作"]
+Enqueue --> Check{"是否正在处理?"}
+Check --> |否| Process["启动批量处理"]
+Check --> |是| Wait["等待处理完成"]
+Process --> Batch["批量取出5个操作"]
+Batch --> Parallel["并行执行"]
+Parallel --> Stats["统计结果"]
+Stats --> Success{"是否有失败?"}
+Success --> |是| LogWarn["记录警告"]
+Success --> |否| LogDebug["记录调试"]
+LogWarn --> Continue["继续处理"]
+LogDebug --> Continue
+Continue --> More{"队列是否还有任务?"}
+More --> |是| Delay["延迟100ms"] --> Process
+More --> |否| End(["结束"])
+Wait --> End
+```
+
+**图表来源**
+- [memoryQueue.js:72-118](file://NL2SQL/backend/src/memory/memoryQueue.js#L72-L118)
+- [memoryQueue.js:186-202](file://NL2SQL/backend/src/memory/memoryQueue.js#L186-L202)
+
+**章节来源**
+- [memoryQueue.js:1-217](file://NL2SQL/backend/src/memory/memoryQueue.js#L1-L217)
+
+### 智能摘要触发机制
+**更新** 对话摘要模块现已升级为智能摘要触发机制，基于轮数和Token密度双重条件动态决定是否进行摘要压缩。
+
+- **双阈值触发**：轮数阈值8轮和Token阈值6000 tokens双重判断
+- **缓存优化**：30分钟缓存过期时间，避免重复生成
+- **增量更新**：支持对现有摘要的增量更新，减少LLM调用
+- **智能合并**：将摘要与近期历史智能合并，保持上下文连续性
+
+```mermaid
+flowchart TD
+Start(["开始"]) --> Split["分割历史<br/>保留最近4轮"]
+Split --> Check{"需要摘要吗?"}
+Check --> |轮数>=8| Trigger["触发摘要"]
+Check --> |Token>6000| Trigger
+Check --> |否| Return["返回原始历史"]
+Trigger --> Cache{"缓存可用?"}
+Cache --> |是| UseCache["使用缓存摘要"]
+Cache --> |否| Generate["生成新摘要"]
+UseCache --> Merge["合并摘要+近期历史"]
+Generate --> SaveCache["保存到缓存"]
+SaveCache --> Merge
+Merge --> End(["结束"])
+Return --> End
+```
+
+**图表来源**
+- [summarizer.js:450-504](file://NL2SQL/backend/src/memory/summarizer.js#L450-L504)
+- [summarizer.js:411-425](file://NL2SQL/backend/src/memory/summarizer.js#L411-L425)
+
+**章节来源**
+- [summarizer.js:1-530](file://NL2SQL/backend/src/memory/summarizer.js#L1-L530)
 
 ### NL2SQL引擎性能优化
 - 实体解析优化：通过单次批量查询替代多次数据库查询，减少往返延迟；引入歧义处理与澄清机制，避免无效重试。
@@ -199,6 +290,7 @@ Ask --> End
 - 智能搜索：根据查询意图识别（如游戏提及）进行优先级重排序，提升相关性。
 - 元数据增强：计算查询重要性评分与分类，辅助后续学习与优化。
 - 统计与评估：记录向量检索命中率与距离分布，为质量评估提供数据。
+- **增量更新**：基于内容哈希的增量更新，避免不必要的Embedding调用。
 
 ```mermaid
 classDiagram
@@ -213,6 +305,9 @@ class VectorStore {
 +classifyQueryType()
 +buildEnhancedMetadata()
 +getStats()
++upsertSchemaVector()
++findSchemaByTableName()
++markSchemaAsDeleted()
 }
 class Evaluation {
 +recordVectorSearch()
@@ -227,11 +322,13 @@ VectorStore --> Evaluation : "记录统计"
 **图表来源**
 - [vectorStore.js:231-261](file://NL2SQL/backend/src/memory/vectorStore.js#L231-L261)
 - [vectorStore.js:450-536](file://NL2SQL/backend/src/memory/vectorStore.js#L450-L536)
+- [vectorStore.js:799-852](file://NL2SQL/backend/src/memory/vectorStore.js#L799-L852)
 - [evaluation.js:71-96](file://NL2SQL/backend/src/utils/evaluation.js#L71-L96)
 - [evaluation.js:158-266](file://NL2SQL/backend/src/utils/evaluation.js#L158-L266)
 
 **章节来源**
 - [vectorStore.js:450-536](file://NL2SQL/backend/src/memory/vectorStore.js#L450-L536)
+- [vectorStore.js:799-852](file://NL2SQL/backend/src/memory/vectorStore.js#L799-L852)
 - [evaluation.js:158-266](file://NL2SQL/backend/src/utils/evaluation.js#L158-L266)
 
 ### SQLite数据库性能优化
@@ -329,6 +426,7 @@ Recalc --> Safe
 - 存储筛选：基于置信度、查询复杂度与频率进行筛选，避免存储一次性或低价值查询。
 - 分级保留：高频偏好永久保留，中频与低频偏好按天数清理，字段别名按固定周期清理。
 - 相似模式合并：合并维度与指标高度重合的模式，减少冗余存储。
+- **异步存储**：所有存储操作通过记忆队列异步执行，避免阻塞主流程。
 
 ```mermaid
 flowchart TD
@@ -338,16 +436,20 @@ LLM --> |是| Analyze["LLM智能分析"]
 LLM --> |否| Logic["逻辑判断"]
 Analyze --> Store["存储偏好"]
 Logic --> Store
-Store --> Retention["分级保留策略"]
+Store --> Queue["记忆队列入队"]
+Queue --> Async["异步执行"]
+Async --> Retention["分级保留策略"]
 Retention --> Merge["相似模式合并"]
 ```
 
 **图表来源**
 - [longTermMemory.js:312-485](file://NL2SQL/backend/src/memory/longTermMemory.js#L312-L485)
+- [memoryQueue.js:46-66](file://NL2SQL/backend/src/memory/memoryQueue.js#L46-L66)
 - [memoryMaintenance.js:69-120](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L69-L120)
 
 **章节来源**
 - [longTermMemory.js:312-485](file://NL2SQL/backend/src/memory/longTermMemory.js#L312-L485)
+- [memoryQueue.js:46-66](file://NL2SQL/backend/src/memory/memoryQueue.js#L46-L66)
 - [memoryMaintenance.js:69-120](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L69-L120)
 
 ### 自修复机制与系统维护
@@ -410,8 +512,8 @@ Note over LLM,API : 失败时自动重试与超时控制
 
 ## 依赖分析
 - 外部依赖：Express、vectordb、sqlite3、dotenv、cors、body-parser、uuid、dayjs、node-cron
-- 内部模块：核心引擎、向量存储、数据库、上下文管理、长期记忆、自修复、LLM服务、评估系统、日志系统
-- 耦合关系：NL2SQL引擎依赖LLM服务、向量存储、数据库与长期记忆；向量存储与评估系统相互协作；自修复机制贯穿各模块维护
+- 内部模块：核心引擎、向量存储、数据库、上下文管理、长期记忆、自修复、LLM服务、评估系统、日志系统、记忆队列
+- 耦合关系：NL2SQL引擎依赖LLM服务、向量存储、数据库与长期记忆；向量存储与评估系统相互协作；自修复机制贯穿各模块维护；长期记忆通过记忆队列异步存储
 
 ```mermaid
 graph TB
@@ -427,6 +529,7 @@ ENGINE --> LLM["llmService.js"]
 ENGINE --> VEC
 ENGINE --> DB
 ENGINE --> LTM["longTermMemory.js"]
+LTM --> MQ["memoryQueue.js"]
 SELF --> DB
 SELF --> VEC
 ```
@@ -445,10 +548,13 @@ SELF --> VEC
 - 向量检索：智能搜索与元数据增强，提升相关性与减少无效匹配
 - 上下文管理：Token预算估算与压缩，防止LLM上下文溢出
 - 长期记忆：分级保留策略与相似模式合并，控制存储规模与提升命中率
+- **异步存储**：记忆队列批量处理与并行执行，避免阻塞主流程
+- **智能摘要**：双阈值触发与缓存机制，减少LLM调用频率
+- **增量更新**：基于内容哈希的Schema更新，避免不必要的Embedding调用
 - 自修复：定时任务与健康报告，保障系统长期稳定运行
 - LLM服务：重试机制与超时控制，提升外部依赖可靠性
 
-[本节为通用指导，无需特定文件分析]
+**更新** 新增异步存储、智能摘要触发、增量更新等性能优化考量，显著提升系统并发处理能力和响应速度。
 
 ## 故障排查指南
 - 优雅关闭：监听SIGTERM/SIGINT，确保资源正确释放
@@ -456,12 +562,18 @@ SELF --> VEC
 - 日志系统：统一日志格式与级别，支持结构化日志与追踪
 - 自修复：每日自检检查数据库连接、向量数据库状态、查询统计与系统资源
 - 评估系统：记录向量检索命中率与距离分布，生成完整统计报告
+- **记忆队列**：监控队列状态、处理延迟与失败率，及时发现存储瓶颈
+- **摘要缓存**：检查缓存命中率与过期时间，优化摘要性能
 
 **章节来源**
 - [app.js:176-230](file://NL2SQL/backend/src/app.js#L176-L230)
 - [logger.js:263-309](file://NL2SQL/backend/src/utils/logger.js#L263-L309)
 - [selfRepair.js:169-310](file://NL2SQL/backend/src/core/selfRepair.js#L169-L310)
 - [evaluation.js:397-407](file://NL2SQL/backend/src/utils/evaluation.js#L397-L407)
+- [memoryQueue.js:160-167](file://NL2SQL/backend/src/memory/memoryQueue.js#L160-L167)
+- [summarizer.js:375-406](file://NL2SQL/backend/src/memory/summarizer.js#L375-L406)
 
 ## 结论
-本项目通过模块化设计与多项性能优化策略，在保证功能完整性的同时显著提升了系统性能与稳定性。关键优化包括：NL2SQL引擎的批量查询与歧义处理、向量存储的智能搜索与元数据增强、SQLite的索引优化与事务管理、Token预算的估算与压缩、长期记忆的分级保留与相似模式合并、自修复机制的定时维护与健康报告，以及LLM服务的重试与超时控制。这些措施共同构成了一个高效、可靠且可扩展的自然语言到SQL查询服务。
+本项目通过模块化设计与多项性能优化策略，在保证功能完整性的同时显著提升了系统性能与稳定性。关键优化包括：NL2SQL引擎的批量查询与歧义处理、向量存储的智能搜索与元数据增强、SQLite的索引优化与事务管理、Token预算的估算与压缩、长期记忆的分级保留与相似模式合并、**异步记忆存储队列的批量处理与并行执行**、**智能摘要触发的双阈值机制与缓存优化**、**Schema增量更新的内容哈希判断**、自修复机制的定时维护与健康报告，以及LLM服务的重试与超时控制。这些措施共同构成了一个高效、可靠且可扩展的自然语言到SQL查询服务。
+
+**更新** 新版本通过异步队列、智能摘要触发、增量更新等先进技术，进一步提升了系统的并发处理能力、响应速度和资源利用率，为高并发场景下的稳定运行提供了坚实保障。

@@ -8,13 +8,24 @@
 - [config.example.json](file://config.example.json)
 - [tools.py](file://tools.py)
 - [xiaowang.py](file://xiaowang.py)
+- [memoryQueue.js](file://NL2SQL/backend/src/memory/memoryQueue.js)
+- [summarizer.js](file://NL2SQL/backend/src/memory/summarizer.js)
+- [memoryMaintenance.js](file://NL2SQL/backend/src/memory/memoryMaintenance.js)
+- [longTermMemory.js](file://NL2SQL/backend/src/memory/longTermMemory.js)
+- [database.js](file://NL2SQL/backend/src/core/database.js)
+- [tokenBudget.js](file://NL2SQL/backend/src/utils/tokenBudget.js)
+- [vectorStore.js](file://NL2SQL/backend/src/memory/vectorStore.js)
+- [schemaLoader.js](file://NL2SQL/backend/src/core/schemaLoader.js)
+- [config.js](file://NL2SQL/backend/src/core/config.js)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增与NL2SQL长期记忆系统的区别说明，避免概念混淆
-- 强调7/24办公室AI代理系统的三层记忆管道架构
-- 明确区分两套不同的记忆管理策略和应用场景
+- 新增异步队列功能：memoryQueue.js 提供非阻塞的记忆存储队列
+- 新增智能摘要触发：summarizer.js 基于Token感知的动态摘要触发机制
+- 新增置顶保护功能：memoryMaintenance.js 支持记忆置顶和优先级管理
+- 更新三层记忆管道架构：明确异步处理和智能触发机制
+- 增强NL2SQL长期记忆系统的对比分析
 
 ## 目录
 1. [简介](#简介)
@@ -23,11 +34,14 @@
 4. [核心组件](#核心组件)
 5. [架构概览](#架构概览)
 6. [详细组件分析](#详细组件分析)
-7. [依赖关系分析](#依赖关系分析)
-8. [性能考虑](#性能考虑)
-9. [故障排除指南](#故障排除指南)
-10. [结论](#结论)
-11. [附录](#附录)
+7. [异步队列系统](#异步队列系统)
+8. [智能摘要触发](#智能摘要触发)
+9. [置顶保护机制](#置顶保护机制)
+10. [依赖关系分析](#依赖关系分析)
+11. [性能考虑](#性能考虑)
+12. [故障排除指南](#故障排除指南)
+13. [结论](#结论)
+14. [附录](#附录)
 
 ## 简介
 
@@ -41,6 +55,9 @@
 - **语义相似度计算**：基于余弦相似度的智能去重
 - **异步压缩处理**：后台线程处理记忆压缩，不影响主流程
 - **零延迟缓存**：为硬件/语音通道提供预计算的记忆摘要
+- **异步队列系统**：支持非阻塞的记忆存储操作
+- **智能摘要触发**：基于Token感知的动态摘要生成
+- **置顶保护机制**：支持关键记忆的置顶保护和优先级管理
 
 ## 系统定位与区别
 
@@ -73,7 +90,7 @@ MEM --> FS
 
 ### NL2SQL长期记忆系统对比
 
-NL2SQL系统专注于数据查询场景的记忆管理：
+NL2SQL系统专注于数据查询场景的记忆管理，包含以下增强功能：
 
 ```mermaid
 graph TB
@@ -81,6 +98,9 @@ subgraph "NL2SQL长期记忆系统"
 N1[nl2sqlEngine.js<br/>查询引擎]
 N2[longTermMemory.js<br/>偏好记忆]
 N3[vectorStore.js<br/>向量存储]
+N4[memoryQueue.js<br/>异步队列]
+N5[summarizer.js<br/>智能摘要]
+N6[memoryMaintenance.js<br/>置顶保护]
 end
 subgraph "存储层"
 DB[SQLite<br/>结构化存储]
@@ -89,6 +109,9 @@ end
 N1 --> N2
 N2 --> DB
 N3 --> VDB
+N4 --> DB
+N5 --> N2
+N6 --> DB
 ```
 
 **关键差异**：
@@ -96,6 +119,9 @@ N3 --> VDB
 - **存储方式**：向量数据库 vs 结构化数据库
 - **记忆类型**：通用事实 vs 查询偏好
 - **管理策略**：语义去重 vs 使用频率分级
+- **异步处理**：后台线程 vs 异步队列
+- **智能触发**：固定轮数 vs Token感知
+- **保护机制**：无置顶 vs 置顶保护
 
 ## 项目结构
 
@@ -158,6 +184,11 @@ CFG --> MEM
 - **结果格式化**：将检索到的记忆格式化为可读文本
 - **零延迟缓存**：硬件/语音通道的快速响应
 
+### 5. 异步处理组件
+- **后台线程**：处理记忆压缩的异步执行
+- **队列管理**：支持非阻塞的记忆存储操作
+- **批量处理**：提高存储操作的效率
+
 **章节来源**
 - [memory.py:28-34](file://memory.py#L28-L34)
 - [memory.py:40-86](file://memory.py#L40-L86)
@@ -186,7 +217,13 @@ RM2[LanceDB向量搜索]
 RM3[Top-K结果返回]
 RM4[零延迟缓存]
 end
-SM1 --> SM2 --> CM1
+subgraph "异步处理层"
+AM1[后台线程处理]
+AM2[异步队列管理]
+AM3[批量存储优化]
+end
+SM1 --> SM2 --> AM1 --> CM1
+AM2 --> CM1
 CM1 --> CM2 --> CM3 --> CM4
 RM1 --> RM2 --> RM3 --> RM4
 RM4 --> SM1
@@ -202,8 +239,9 @@ RM4 --> SM1
 记忆系统的数据流遵循以下模式：
 
 1. **短期记忆阶段**：用户消息保存在会话文件中，达到阈值后触发压缩
-2. **长期记忆阶段**：后台线程异步处理，LLM提取结构化事实并存储
-3. **检索记忆阶段**：用户查询时进行向量搜索，返回最相关的记忆
+2. **异步处理阶段**：后台线程异步处理记忆压缩，支持队列管理
+3. **长期记忆阶段**：LLM提取结构化事实并存储到LanceDB
+4. **检索记忆阶段**：用户查询时进行向量搜索，返回最相关的记忆
 
 **章节来源**
 - [llm.py:103-106](file://llm.py#L103-L106)
@@ -374,6 +412,114 @@ I --> J[等待下次请求]
 **章节来源**
 - [memory.py:148-151](file://memory.py#L148-L151)
 
+## 异步队列系统
+
+NL2SQL项目中的异步队列系统提供了非阻塞的记忆存储能力：
+
+### 队列管理架构
+
+```mermaid
+flowchart TD
+A[存储请求] --> B[队列入队]
+B --> C{是否正在处理?}
+C --> |否| D[启动处理循环]
+C --> |是| E[等待队列]
+D --> F[批量处理]
+F --> G[并行执行]
+G --> H[处理结果]
+H --> I{队列是否为空?}
+I --> |否| J[继续处理]
+I --> |是| K[停止处理]
+J --> F
+```
+
+**图表来源**
+- [memoryQueue.js:72-118](file://NL2SQL/backend/src/memory/memoryQueue.js#L72-L118)
+
+### 核心功能特性
+
+1. **非阻塞存储**：使用队列避免阻塞主流程
+2. **批量处理**：支持批量大小为5的并行处理
+3. **处理间隔**：100ms的处理间隔避免CPU占用过高
+4. **错误处理**：单个操作失败不影响整体队列处理
+5. **状态监控**：提供队列状态查询和等待完成功能
+
+**章节来源**
+- [memoryQueue.js:46-66](file://NL2SQL/backend/src/memory/memoryQueue.js#L46-L66)
+- [memoryQueue.js:160-177](file://NL2SQL/backend/src/memory/memoryQueue.js#L160-L177)
+
+## 智能摘要触发
+
+NL2SQL项目中的智能摘要触发机制基于Token感知的动态触发：
+
+### 触发条件分析
+
+```mermaid
+flowchart TD
+A[对话历史] --> B[计算轮数]
+A --> C[估算Token数]
+B --> D{轮数 >= 触发阈值?}
+C --> E{Token数 > 阈值?}
+D --> |是| F[触发摘要]
+E --> |是| F
+D --> |否| G{Token数 < 阈值?}
+E --> |否| H[继续对话]
+G --> |是| H
+G --> |否| F
+```
+
+**图表来源**
+- [summarizer.js:457-476](file://NL2SQL/backend/src/memory/summarizer.js#L457-L476)
+
+### 触发阈值配置
+
+智能摘要触发的关键参数：
+- **触发轮数**：8轮（默认值）
+- **Token阈值**：6000 tokens（约60%的10k预算）
+- **缓存策略**：使用缓存避免重复生成
+- **更新间隔**：4轮的更新间隔
+
+**章节来源**
+- [summarizer.js:23-34](file://NL2SQL/backend/src/memory/summarizer.js#L23-L34)
+- [summarizer.js:457-476](file://NL2SQL/backend/src/memory/summarizer.js#L457-L476)
+
+## 置顶保护机制
+
+NL2SQL项目中的置顶保护机制支持关键记忆的保护和优先级管理：
+
+### 数据库结构增强
+
+```mermaid
+erDiagram
+USER_PREFERENCES {
+INTEGER id PK
+TEXT user_id
+TEXT preference_type
+TEXT content
+INTEGER usage_count
+DATETIME last_used_at
+DATETIME created_at
+DATETIME updated_at
+INTEGER is_pinned
+INTEGER priority
+TEXT source
+}
+```
+
+**图表来源**
+- [database.js:140-163](file://NL2SQL/backend/src/core/database.js#L140-L163)
+
+### 清理逻辑优化
+
+置顶保护的清理逻辑：
+- **跳过置顶记忆**：is_pinned = 0 条件确保置顶记忆不被清理
+- **分级保留策略**：高频(≥10次)永久保留，中频(3-9次)90天未用清理
+- **优先级管理**：priority字段支持自动、手动、置顶三种优先级
+
+**章节来源**
+- [memoryMaintenance.js:135-144](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L135-L144)
+- [database.js:157-162](file://NL2SQL/backend/src/core/database.js#L157-L162)
+
 ## 依赖关系分析
 
 智能记忆系统与其他模块的依赖关系：
@@ -431,18 +577,21 @@ MEM --> LLM
 1. **分层存储**：短期记忆使用轻量级文件存储，长期记忆使用高效的向量数据库
 2. **异步处理**：压缩过程在后台线程执行，不影响主流程响应
 3. **批量操作**：支持批量向量搜索和存储，提高I/O效率
+4. **队列管理**：异步队列系统避免阻塞主流程
 
 ### 查询优化
 
 1. **Top-K限制**：默认返回5个最相关的结果，平衡准确性和性能
 2. **早期过滤**：在数据库层面过滤种子数据和无效结果
 3. **缓存机制**：硬件通道的零延迟缓存减少重复计算
+4. **Token预算**：智能摘要触发避免上下文爆炸
 
 ### 内存管理
 
 1. **渐进式压缩**：只有溢出的消息才会被压缩，避免不必要的处理
 2. **阈值控制**：相似度阈值防止重复存储，保持数据库大小可控
 3. **异常容错**：去重查询失败不会影响存储过程
+4. **置顶保护**：关键记忆的保护避免误删
 
 **章节来源**
 - [config.example.json:36-37](file://config.example.json#L36-L37)
@@ -468,6 +617,16 @@ MEM --> LLM
    - 验证消息格式是否符合要求
    - 查看日志获取详细错误信息
 
+4. **异步队列问题**
+   - 检查队列状态和处理间隔
+   - 验证批量处理大小配置
+   - 监控队列积压情况
+
+5. **摘要触发异常**
+   - 检查Token预算配置
+   - 验证触发阈值设置
+   - 监控摘要生成性能
+
 ### 日志分析
 
 系统提供了详细的日志记录，包括：
@@ -475,6 +634,8 @@ MEM --> LLM
 - 压缩进度和结果
 - 检索操作详情
 - 错误和异常情况
+- 队列处理状态
+- 摘要生成统计
 
 **章节来源**
 - [memory.py:84](file://memory.py#L84)
@@ -490,9 +651,9 @@ MEM --> LLM
 3. **易于扩展**：模块化设计，便于功能增强
 4. **可靠性高**：完善的错误处理和异常容错
 
-该系统为AI代理提供了强大的记忆能力，支持长期学习和智能回忆，是构建真正智能代理的重要基础。
-
 **重要提醒**：本系统与NL2SQL长期记忆系统在设计理念、存储方式和应用场景上存在根本差异，应根据具体需求选择合适的记忆管理方案。
+
+该系统为AI代理提供了强大的记忆能力，支持长期学习和智能回忆，是构建真正智能代理的重要基础。
 
 ## 附录
 
@@ -508,6 +669,17 @@ MEM --> LLM
 | retrieve_top_k | integer | 5 | 检索返回的Top-K数量 |
 | similarity_threshold | float | 0.92 | 去重相似度阈值 |
 
+### NL2SQL增强功能配置
+
+| 功能 | 参数名 | 默认值 | 描述 |
+|------|--------|--------|------|
+| 异步队列 | memoryQueue.batchSize | 5 | 批量处理大小 |
+| 异步队列 | memoryQueue.processInterval | 100ms | 处理间隔 |
+| 智能摘要 | summarizer.triggerRounds | 8 | 触发轮数阈值 |
+| 智能摘要 | tokenBudget.tokenThreshold | 6000 | Token阈值 |
+| 置顶保护 | retention.highUsage | null | 高频保留天数 |
+| 置顶保护 | retention.mediumUsage | 90 | 中频保留天数 |
+
 ### 使用示例
 
 虽然本节不包含具体代码内容，但可以提供使用路径参考：
@@ -516,7 +688,13 @@ MEM --> LLM
 - **添加记忆**：通过会话溢出触发压缩，参见[llm.py:103-106](file://llm.py#L103-L106)
 - **查询记忆**：使用工具函数，参见[tools.py:809-813](file://tools.py#L809-L813)
 - **清理操作**：系统自动管理，无需手动干预
+- **异步队列使用**：参见[memoryQueue.js:46-66](file://NL2SQL/backend/src/memory/memoryQueue.js#L46-L66)
+- **智能摘要触发**：参见[summarizer.js:457-476](file://NL2SQL/backend/src/memory/summarizer.js#L457-L476)
+- **置顶保护**：参见[memoryMaintenance.js:135-144](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L135-L144)
 
 **章节来源**
 - [config.example.json:28-38](file://config.example.json#L28-L38)
 - [tools.py:809-813](file://tools.py#L809-L813)
+- [memoryQueue.js:46-66](file://NL2SQL/backend/src/memory/memoryQueue.js#L46-L66)
+- [summarizer.js:457-476](file://NL2SQL/backend/src/memory/summarizer.js#L457-L476)
+- [memoryMaintenance.js:135-144](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L135-L144)

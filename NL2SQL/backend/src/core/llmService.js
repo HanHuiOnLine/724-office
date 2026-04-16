@@ -228,6 +228,7 @@ async function chat(messages, tools = null, stream = false, onStream = null) {
   console.log(`[LLM Prompt] 消息数量: ${messages.length}, 总字符长度: ${totalPromptLength}`);
   messages.forEach((m, i) => {
     console.log(`  [消息${i}] role: ${m.role}, 长度: ${m.content?.length || 0}`);
+    console.log(`  [消息${i}] 内容:`, m.content);
   });
   
   logger.trace('LLM chat请求详情', {

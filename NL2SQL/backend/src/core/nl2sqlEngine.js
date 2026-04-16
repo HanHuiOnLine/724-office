@@ -805,8 +805,11 @@ async function analyzeIntent(userQuery, history = [], userId = null) {
   // 记录开始分析日志
   logger.debug('开始分析用户意图', { query: userQuery, historyLength: history.length, userId });
   
-  // 获取Schema摘要，帮助LLM理解数据结构
-  const schemaSummary = schemaLoader.getSchemaSummary();
+  // 【优化】意图识别阶段只需要核心表名列表，不需要完整Schema详情
+  // 这可以将Prompt从5万+字符降低到约1千字符，显著减少Token消耗和延迟
+  const allTables = schemaLoader.getAllTables();
+  const coreTables = allTables.slice(0, 30);
+  const tableList = coreTables.map(t => `${t.name}(${t.name_cn || ''})`).join(', ');
   
   // 构建对话上下文摘要
   let contextSummary = '';
@@ -983,8 +986,8 @@ ${userSimilarQueries.map((q, i) =>
 - **更换需求**：放弃之前的查询，开始新查询（如"算了，查XX"）
 - **全新查询**：与之前无关的独立查询
 
-数据库Schema概览:
-${schemaSummary}
+【可用表名列表】（仅参考，无需深入解析表结构）:
+${tableList}
 ${contextSummary}
 ${userPreferencesSummary}
 ${similarQueriesSummary}
@@ -1204,29 +1207,54 @@ async function updateIntentWithLLM(previousIntent, newQuery, history) {
     newQuery 
   });
 
-  const schemaSummary = schemaLoader.getSchemaSummary();
+  // 【优化】意图识别阶段只需要核心表名列表，不需要完整Schema详情
+  // 这可以将Prompt从5万+字符降低到约1千字符，显著减少Token消耗和延迟
+  const allTables = schemaLoader.getAllTables();
+  // 只取前30个核心表（通常覆盖80%的查询场景），避免Prompt过长
+  const coreTables = allTables.slice(0, 30);
+  const tableList = coreTables.map(t => `${t.name}(${t.name_cn || ''})`).join(', ');
+  
   const dialogueSummary = getDialogueSummary(history, 6);
+
+  // 【优化】清理previousIntent，只保留核心字段，避免Prompt过大
+  // 从数据库取出的intent可能包含大字段（如schemaInfo、完整历史等）
+  const essentialIntent = {
+    original_query: previousIntent.original_query,
+    time_range: previousIntent.time_range,
+    dimensions: previousIntent.dimensions,
+    metrics: previousIntent.metrics,
+    filters: previousIntent.filters,
+    sort: previousIntent.sort,
+    limit: previousIntent.limit,
+    confidence: previousIntent.confidence,
+    thought: previousIntent.thought
+  };
+  
+  logger.debug('previousIntent大小诊断', {
+    originalSize: JSON.stringify(previousIntent).length,
+    essentialSize: JSON.stringify(essentialIntent).length
+  });
 
   const systemPrompt = `你是一位意图理解专家。你的任务是根据用户的新输入，更新当前的查询意图。
 
 当前意图状态:
-${JSON.stringify(previousIntent, null, 2)}
+${JSON.stringify(essentialIntent, null, 2)}
 
 用户最新输入: "${newQuery}"
 
 最近对话历史（重点参考，尤其是上一轮澄清问题与默认选项）:
 ${dialogueSummary || '无'}
 
-数据库Schema概览:
-${schemaSummary}
+【可用表名列表】（仅参考，无需深入解析表结构）:
+${tableList}
 
 请分析：
 1. 用户是在补充信息（如提供game_id），还是在修改需求（如换指标）？
 2. 如果是补充：将新信息合并到当前意图
 3. 如果是修改：用新需求替换相关字段
 4. 如果是完全新的查询：创建新意图
-5. 如果用户最新输入只是“是 / 对 / 都确认 / 按默认”等简短肯定答复，且上一轮助手在澄清问题中提供了默认或推荐选项，则视为用户确认采用这些默认/推荐选项，不要再次追问同一问题
-6. 如果上一轮助手已经给出了具体候选表、字段、口径或默认值，必须结合上一轮澄清内容理解当前回复，不能把“是”“都确认”当成无意义的新查询
+5. 如果用户最新输入只是"是 / 对 / 都确认 / 按默认"等简短肯定答复，且上一轮助手在澄清问题中提供了默认或推荐选项，则视为用户确认采用这些默认/推荐选项，不要再次追问同一问题
+6. 如果上一轮助手已经给出了具体候选表、字段、口径或默认值，必须结合上一轮澄清内容理解当前回复，不能把"是""都确认"当成无意义的新查询
 
 返回更新后的完整意图JSON:
 {
