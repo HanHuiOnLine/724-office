@@ -153,7 +153,13 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   -- 创建时间
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   -- 更新时间
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  -- 是否置顶（0=普通, 1=置顶），置顶记忆不会被清理
+  is_pinned INTEGER DEFAULT 0,
+  -- 优先级（0=auto自动提取, 1=manual手动设置, 2=pinned置顶）
+  priority INTEGER DEFAULT 0,
+  -- 来源（auto=自动提取, manual=手动设置）
+  source TEXT DEFAULT 'auto'
 );
 
 -- 为user_id创建索引
@@ -287,7 +293,7 @@ async function runMigrations() {
       await run('BEGIN TRANSACTION');
       
       try {
-        // 1. 创建新表（没有 UNIQUE 约束）
+        // 1. 创建新表（没有 UNIQUE 约束，包含新字段）
         await run(`
           CREATE TABLE user_preferences_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -297,7 +303,10 @@ async function runMigrations() {
             usage_count INTEGER DEFAULT 1,
             last_used_at DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            is_pinned INTEGER DEFAULT 0,
+            priority INTEGER DEFAULT 0,
+            source TEXT DEFAULT 'auto'
           )
         `);
         

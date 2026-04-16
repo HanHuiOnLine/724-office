@@ -455,13 +455,25 @@ async function smartCompressHistory(sessionId, history, options = {}) {
   
   // 检查是否需要压缩
   const currentRounds = Math.floor(history.length / 2);
-  if (currentRounds < config.triggerRounds) {
+  const historyTokens = tokenBudget.estimateObjectTokens(history);
+  
+  // 触发条件：轮数 >= 触发阈值 或 Token 数超过阈值（约 60% 的 10k 预算）
+  const tokenThreshold = 6000;
+  
+  if (currentRounds < config.triggerRounds && historyTokens < tokenThreshold) {
     return {
       compressed: false,
       history: history,
-      reason: `当前 ${currentRounds} 轮，未达到触发阈值 ${config.triggerRounds}`
+      reason: `当前 ${currentRounds} 轮/${historyTokens} tokens，未达到触发阈值（${config.triggerRounds}轮/${tokenThreshold}tokens）`
     };
   }
+  
+  logger.info('[Summarizer] 触发摘要压缩', {
+    currentRounds,
+    historyTokens,
+    triggerRounds: config.triggerRounds,
+    tokenThreshold
+  });
   
   // 检查缓存
   const cached = getCachedSummary(sessionId);

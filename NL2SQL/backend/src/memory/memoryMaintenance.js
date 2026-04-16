@@ -131,34 +131,37 @@ async function compressSingleUser(userId) {
   };
   
   try {
-    // 1. 清理中频偏好(3-9次)：90天未用清理
+    // 1. 清理中频偏好(3-9次)：90天未用清理（跳过置顶记忆）
     const mediumResult = await database.run(
       `DELETE FROM user_preferences 
        WHERE user_id = ? 
        AND usage_count >= ? AND usage_count <= ?
-       AND last_used_at < datetime('now', '-${CLEANUP_RULES.MEDIUM_USAGE.ttlDays} days')`,
+       AND last_used_at < datetime('now', '-${CLEANUP_RULES.MEDIUM_USAGE.ttlDays} days')
+       AND is_pinned = 0`,
       [userId, CLEANUP_RULES.MEDIUM_USAGE.minUsage, CLEANUP_RULES.MEDIUM_USAGE.maxUsage]
     );
     stats.deleted.mediumUsage = mediumResult.changes;
     stats.deleted.total += mediumResult.changes;
     
-    // 2. 清理低频偏好(<3次)：30天未用清理
+    // 2. 清理低频偏好(<3次)：30天未用清理（跳过置顶记忆）
     const lowResult = await database.run(
       `DELETE FROM user_preferences 
        WHERE user_id = ? 
        AND usage_count <= ?
-       AND last_used_at < datetime('now', '-${CLEANUP_RULES.LOW_USAGE.ttlDays} days')`,
+       AND last_used_at < datetime('now', '-${CLEANUP_RULES.LOW_USAGE.ttlDays} days')
+       AND is_pinned = 0`,
       [userId, CLEANUP_RULES.LOW_USAGE.maxUsage]
     );
     stats.deleted.lowUsage = lowResult.changes;
     stats.deleted.total += lowResult.changes;
     
-    // 3. 清理字段别名：365天未用清理
+    // 3. 清理字段别名：365天未用清理（跳过置顶记忆）
     const aliasResult = await database.run(
       `DELETE FROM user_preferences 
        WHERE user_id = ? 
        AND preference_type = ?
-       AND last_used_at < datetime('now', '-${CLEANUP_RULES.FIELD_ALIAS.ttlDays} days')`,
+       AND last_used_at < datetime('now', '-${CLEANUP_RULES.FIELD_ALIAS.ttlDays} days')
+       AND is_pinned = 0`,
       [userId, PREFERENCE_TYPES.FIELD_ALIAS]
     );
     stats.deleted.fieldAlias = aliasResult.changes;

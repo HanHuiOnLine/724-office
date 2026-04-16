@@ -19,6 +19,7 @@ const logger = require('../utils/logger');
 const llmService = require('../core/llmService');
 const config = require('../core/config');
 const evaluation = require('../utils/evaluation');
+const memoryQueue = require('./memoryQueue');
 
 // ============================================
 // 常量定义（从配置读取，可覆盖）
@@ -408,54 +409,39 @@ async function extractAndStorePreferences(userId, intent, originalQuery, options
       });
       
       if (storageDecision.shouldStore) {
-        const pattern = await storeQueryPattern(userId, intent, originalQuery);
-        if (pattern) {
-          storedPreferences.push(pattern);
-          logger.info('[长期记忆] ✅ 查询模式已存储', { 
-            userId,
-            patternId: pattern.id,
-            patternName: pattern.content?.name,
-            action: pattern.action
-          });
-        }
+        memoryQueue.enqueueMemoryStore(
+          () => storeQueryPattern(userId, intent, originalQuery),
+          { type: 'query_pattern', userId }
+        );
+        logger.info('[长期记忆] 查询模式已入队（异步存储）', { userId });
       }
     }
     
-    // 5. 提取并存储指标偏好
+    // 5. 提取并存储指标偏好（异步）
     if (intent.metrics && intent.metrics.length > 0) {
-      logger.info('[长期记忆] 开始存储指标偏好', { 
+      logger.info('[长期记忆] 指标偏好已入队（异步存储）', { 
         userId, 
         metrics: intent.metrics 
       });
       for (const metric of intent.metrics) {
-        const pref = await storeMetricPreference(userId, metric, originalQuery);
-        if (pref) {
-          storedPreferences.push(pref);
-          logger.info('[长期记忆] ✅ 指标偏好已存储', { 
-            userId, 
-            metric,
-            action: pref.action 
-          });
-        }
+        memoryQueue.enqueueMemoryStore(
+          () => storeMetricPreference(userId, metric, originalQuery),
+          { type: 'metric_preference', userId }
+        );
       }
     }
     
-    // 6. 提取并存储维度偏好
+    // 6. 提取并存储维度偏好（异步）
     if (intent.dimensions && intent.dimensions.length > 0) {
-      logger.info('[长期记忆] 开始存储维度偏好', { 
+      logger.info('[长期记忆] 维度偏好已入队（异步存储）', { 
         userId, 
         dimensions: intent.dimensions 
       });
       for (const dimension of intent.dimensions) {
-        const pref = await storeDimensionPreference(userId, dimension, originalQuery);
-        if (pref) {
-          storedPreferences.push(pref);
-          logger.info('[长期记忆] ✅ 维度偏好已存储', { 
-            userId, 
-            dimension,
-            action: pref.action 
-          });
-        }
+        memoryQueue.enqueueMemoryStore(
+          () => storeDimensionPreference(userId, dimension, originalQuery),
+          { type: 'dimension_preference', userId }
+        );
       }
     }
     

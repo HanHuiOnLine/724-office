@@ -222,6 +222,14 @@ function sleep(ms) {
 async function chat(messages, tools = null, stream = false, onStream = null) {
   // 记录开始调用日志
   logger.debug('调用LLM chat API', { messageCount: messages.length, stream });
+  
+  // 计算并打印所有消息的prompt总长度
+  const totalPromptLength = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+  console.log(`[LLM Prompt] 消息数量: ${messages.length}, 总字符长度: ${totalPromptLength}`);
+  messages.forEach((m, i) => {
+    console.log(`  [消息${i}] role: ${m.role}, 长度: ${m.content?.length || 0}`);
+  });
+  
   logger.trace('LLM chat请求详情', {
     model: config.llm.model,
     messageCount: messages.length,

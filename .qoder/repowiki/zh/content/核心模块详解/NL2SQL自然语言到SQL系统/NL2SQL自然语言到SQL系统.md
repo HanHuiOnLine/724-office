@@ -31,7 +31,11 @@
 
 ## 更新摘要
 **变更内容**
-- 实现表级向量化而非字段级向量化，显著提升向量检索效率
+- 实现实体解析系统重大性能优化：从循环多次数据库查询优化为单次查询
+- 引入两阶段匹配处理：长期记忆+数据库模糊匹配的智能组合
+- 增强歧义检测和解决机制：多候选匹配时的智能澄清处理
+- 新增实体跟踪和性能监控功能：完整的实体解析过程追踪
+- 优化表级向量化而非字段级向量化，显著提升向量检索效率
 - 引入智能搜索策略，基于查询意图进行表级重排序
 - 优化Schema加载和向量化系统，增强元数据管理和特征提取
 - 完善向量评估系统，支持表级向量的质量评估和统计监控
@@ -59,7 +63,7 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **语义检索**：利用向量数据库实现Schema的语义匹配
 - **安全控制**：多重安全验证和访问控制机制
 - **会话管理**：完整的对话历史和状态管理
-- **实体解析**：支持模糊描述到具体ID的智能映射
+- **实体解析**：支持模糊描述到具体ID的智能映射，包含两阶段匹配处理
 - **上下文理解**：深度融合对话历史的智能分析
 - **Markdown渲染**：丰富的前端展示和交互体验
 - **长期记忆**：智能学习用户偏好和查询模式
@@ -79,6 +83,9 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **智能搜索策略**：基于查询意图的表级重排序算法
 - **增强元数据管理**：表级向量包含域标签、数据类型等元数据
 - **核心特征词提取**：从表名、描述和字段中提取强动作特征词
+- **实体解析优化**：单次查询替代循环多次查询，显著提升性能
+- **歧义处理机制**：智能检测和解决实体解析歧义
+- **实体跟踪监控**：完整的实体解析过程追踪和统计
 
 ## 项目结构
 
@@ -175,7 +182,7 @@ BE4 --> DS2
 系统的核心由以下关键组件构成：
 
 #### 1. NL2SQL引擎
-负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**紧凑Schema输出机制和增强的智能字段过滤功能。
+负责完整的自然语言到SQL转换流程，包括意图识别、澄清机制、SQL生成、验证和结果格式化。**新增**紧凑Schema输出机制和增强的智能字段过滤功能，**优化**实体解析系统性能。
 
 #### 2. LLM服务
 封装与大型语言模型的交互，提供聊天、嵌入向量获取和重试机制。
@@ -193,7 +200,7 @@ BE4 --> DS2
 实现实时通信，支持流式响应和心跳检测。
 
 #### 7. 实体解析系统
-**新增**支持模糊描述到具体ID的智能映射，如将"青木"映射到游戏ID。
+**重大优化**支持两阶段匹配处理：长期记忆+数据库模糊匹配，从循环多次数据库查询优化为单次查询，**新增**歧义检测和解决机制，**新增**实体跟踪和性能监控功能。
 
 #### 8. 长期记忆模块
 **新增**用户长期记忆管理，包括偏好提取、存储、检索和维护功能。**新增**澄清轮即时学习能力。
@@ -307,6 +314,10 @@ ENDPOINT6[紧凑Schema输出端点]
 ENDPOINT7[智能字段过滤端点]
 EVAL_ENDPOINT[评估系统端点]
 ENDPOINT8[统计报告端点]
+ENDPOINT9[实体跟踪监控]
+ENDPOINT10[歧义处理机制]
+ENDPOINT11[两阶段匹配处理]
+ENDPOINT12[单次查询优化]
 end
 subgraph "服务层"
 LLM[LLM服务]
@@ -325,11 +336,23 @@ FIELD_FILTER[字段过滤服务]
 EVAL_SERVICE[评估服务]
 STATS_SERVICE[统计服务]
 LOG_SERVICE[日志服务]
+ENDPOINT13[实体解析服务]
+ENDPOINT14[性能监控服务]
+ENDPOINT15[实体跟踪服务]
+ENDPOINT16[歧义检测服务]
+ENDPOINT17[匹配处理服务]
+ENDPOINT18[查询优化服务]
 end
 subgraph "数据层"
 SQLITE[SQLite数据库]
 LANCEDB[LanceDB向量库]
 METADATA[Schema元数据]
+ENDPOINT19[实体数据库]
+ENDPOINT20[性能统计库]
+ENDPOINT21[实体跟踪库]
+ENDPOINT22[歧义记录库]
+ENDPOINT23[匹配历史库]
+ENDPOINT24[查询优化库]
 end
 UI --> API
 UI --> MR
@@ -371,6 +394,22 @@ SUMMARIZE --> ENGINE
 STATS_SERVICE --> SQLITE
 STATS_SERVICE --> LANCEDB
 LOG_SERVICE --> LOG_FILE
+ENTITIES --> ENDPOINT19
+ENGINE --> ENDPOINT12
+ENGINE --> ENDPOINT10
+ENGINE --> ENDPOINT9
+ENGINE --> ENDPOINT11
+ENGINE --> ENDPOINT13
+ENGINE --> ENDPOINT14
+ENGINE --> ENDPOINT15
+ENGINE --> ENDPOINT16
+ENGINE --> ENDPOINT17
+ENGINE --> ENDPOINT18
+ENGINE --> ENDPOINT20
+ENGINE --> ENDPOINT21
+ENGINE --> ENDPOINT22
+ENGINE --> ENDPOINT23
+ENGINE --> ENDPOINT24
 ```
 
 **图表来源**
@@ -399,6 +438,7 @@ participant Schema as Schema加载器
 participant Vector as 向量存储
 participant Eval as 评估系统
 participant DB as 数据库
+participant EntityTrack as 实体跟踪监控
 Client->>WS : 发送查询请求
 WS->>Engine : 处理查询
 Engine->>Budget : 检查上下文预算
@@ -423,6 +463,9 @@ CompactSchema->>FieldFilter : 应用智能字段过滤
 FieldFilter-->>CompactSchema : 过滤后的字段
 CompactSchema-->>Schema : 紧凑Schema详情
 Schema-->>Engine : 表结构信息(智能匹配)
+Engine->>Engine : 实体解析(两阶段匹配)
+Engine->>EntityTrack : 记录实体解析过程
+EntityTrack-->>Engine : 返回跟踪信息
 Engine->>LLM : 生成SQL(含平台信息)
 LLM-->>Engine : SQL语句
 Engine->>Engine : SQL验证
@@ -450,6 +493,149 @@ WS-->>Client : 发送响应
 ### NL2SQL引擎分析
 
 NL2SQL引擎是系统的核心，实现了完整的自然语言到SQL转换流程：
+
+#### 实体解析系统重大优化
+
+**重大更新**实体解析系统实现了性能优化和功能增强：
+
+```mermaid
+flowchart TD
+Start([开始实体解析]) --> CheckLLM{检查LLM已识别的filters}
+CheckLLM --> |已有game_id| SkipParse[跳过实体解析]
+CheckLLM --> |无game_id| LoadMemory[加载长期记忆别名]
+LoadMemory --> CheckMemory{检查用户别名}
+CheckMemory --> |找到映射| AddFilter[添加别名过滤器]
+CheckMemory --> |无映射| SingleQuery[执行单次查询]
+SingleQuery --> MultiLike[构建多LIKE条件]
+MultiLike --> ExecuteQuery[执行单次数据库查询]
+ExecuteQuery --> ProcessResults[处理查询结果]
+ProcessResults --> CheckCandidates{检查候选数量}
+CheckCandidates --> |唯一匹配| AddUnique[添加唯一匹配]
+CheckCandidates --> |精确匹配| AddExact[添加精确匹配]
+CheckCandidates --> |多个候选| HandleAmbiguity[处理歧义]
+HandleAmbiguity --> AddClarify[添加澄清需求]
+AddFilter --> End([完成])
+AddUnique --> End
+AddExact --> End
+AddClarify --> End
+SkipParse --> End
+```
+
+**图表来源**
+- [nl2sqlEngine.js:368-547](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L368-L547)
+- [nl2sqlEngine.js:445-517](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L445-L517)
+
+实体解析系统的核心优化包括：
+
+1. **单次查询优化**：将循环多次数据库查询优化为单次查询，使用多个LIKE条件
+2. **两阶段匹配处理**：优先使用长期记忆中的用户学习映射，失败后再进行数据库模糊匹配
+3. **智能歧义处理**：多候选匹配时自动标记需要澄清，提供最佳选项给用户
+4. **实体跟踪监控**：记录实体解析过程，包括匹配来源和性能统计
+5. **去重机制**：避免同一实体被重复添加到filters中
+
+#### 两阶段匹配处理机制
+
+**新增**两阶段匹配处理实现了智能的实体解析流程：
+
+```mermaid
+stateDiagram-v2
+[*] --> 检查长期记忆
+检查长期记忆 --> 有匹配? : 用户别名学习
+有匹配? --> |是| 使用别名映射
+有匹配? --> |否| 执行数据库查询
+使用别名映射 --> 添加过滤器
+执行数据库查询 --> 单次查询执行
+单次查询执行 --> 结果处理
+结果处理 --> 唯一匹配?
+唯一匹配? --> |是| 添加唯一匹配
+唯一匹配? --> |否| 精确匹配?
+精确匹配? --> |是| 添加精确匹配
+精确匹配? --> |否| 多候选处理
+多候选处理 --> 标记澄清需求
+标记澄清需求 --> [*]
+添加唯一匹配 --> [*]
+添加精确匹配 --> [*]
+添加过滤器 --> [*]
+```
+
+**图表来源**
+- [nl2sqlEngine.js:381-434](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L381-L434)
+- [nl2sqlEngine.js:437-517](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L437-L517)
+
+#### 歧义检测和解决机制
+
+**新增**智能歧义检测和解决机制：
+
+```mermaid
+flowchart TD
+Start([开始歧义处理]) --> FindCandidates[查找候选实体]
+FindCandidates --> CheckCount{候选数量}
+CheckCount --> |1个| UniqueMatch[唯一匹配]
+CheckCount --> |>1个| CheckExact{精确匹配?}
+CheckCount --> |0个| NoMatch[无匹配]
+UniqueMatch --> AddFilter[添加过滤器]
+CheckExact --> |是| ExactMatch[精确匹配]
+CheckExact --> |否| MultipleCandidates[多个候选]
+ExactMatch --> AddFilter
+MultipleCandidates --> CheckExisting{检查澄清需求}
+CheckExisting --> |已有| UpdateClarify[更新澄清需求]
+CheckExisting --> |无| CreateClarify[创建澄清需求]
+UpdateClarify --> End([完成])
+CreateClarify --> End
+NoMatch --> End
+AddFilter --> End
+```
+
+**图表来源**
+- [nl2sqlEngine.js:476-510](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L476-L510)
+
+歧义处理机制包括：
+- **候选筛选**：从查询中提取潜在实体名称
+- **精确匹配检测**：优先选择完全匹配的实体
+- **模糊匹配处理**：多个相似候选时标记需要澄清
+- **澄清选项生成**：为用户提供最佳选项列表
+
+#### 实体跟踪和性能监控
+
+**新增**实体解析过程的完整跟踪和监控：
+
+```mermaid
+classDiagram
+class EntityTracking {
++trackEntityResolution(entityName, entityType, matchSource, result) void
++recordPerformance(entityName, processingTime, queryCount) void
++getEntityStats() Object
++resetStats() void
+}
+class PerformanceMetrics {
++totalResolutions : number
++successfulResolutions : number
++ambiguousResolutions : number
++processingTime : number
++queryCount : number
++matchSources : Object
+}
+class ResolutionLog {
++entityName : string
++entityType : string
++matchSource : string
++result : Object
++timestamp : Date
++processingTime : number
+}
+EntityTracking --> PerformanceMetrics : "收集"
+EntityTracking --> ResolutionLog : "记录"
+```
+
+**图表来源**
+- [nl2sqlEngine.js:539-541](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L539-L541)
+- [logger.js:175-187](file://NL2SQL/backend/src/utils/logger.js#L175-L187)
+
+实体跟踪功能包括：
+- **匹配来源记录**：记录实体解析的来源（长期记忆、数据库模糊、数据库精确）
+- **性能统计**：记录处理时间和查询次数
+- **成功率统计**：跟踪实体解析的成功率
+- **歧义处理统计**：记录需要澄清的实体数量
 
 #### 紧凑Schema输出机制
 
@@ -1587,6 +1773,10 @@ IM22[智能字段过滤]
 IM23[评估系统]
 IM24[统计服务]
 IM25[日志服务]
+IM26[实体跟踪监控]
+IM27[歧义处理机制]
+IM28[两阶段匹配处理]
+IM29[单次查询优化]
 end
 EX1 --> IM9
 EX2 --> IM8
@@ -1621,6 +1811,9 @@ IM1 --> IM22
 IM1 --> IM23
 IM1 --> IM24
 IM1 --> IM25
+IM1 --> IM26
+IM1 --> IM27
+IM1 --> IM28
 IM9 --> IM7
 IM8 --> IM7
 IM7 --> IM5
@@ -1660,6 +1853,9 @@ IM11 --> IM7
 IM16 --> IM18
 IM17 --> IM18
 IM18 --> IM7
+IM26 --> IM7
+IM27 --> IM7
+IM28 --> IM7
 ```
 
 **图表来源**
@@ -1685,6 +1881,10 @@ IM18 --> IM7
 13. **评估层集成**：评估系统集成到向量存储和记忆模块
 14. **统计层集成**：统计服务集成到评估系统
 15. **日志层集成**：日志服务集成到评估系统
+16. **实体跟踪层集成**：实体跟踪监控集成到实体解析
+17. **歧义处理层集成**：歧义处理机制集成到实体解析
+18. **两阶段匹配层集成**：两阶段匹配处理集成到实体解析
+19. **查询优化层集成**：单次查询优化集成到实体解析
 
 **章节来源**
 - [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
@@ -1710,6 +1910,9 @@ IM18 --> IM7
 12. **字段过滤缓存**：智能字段过滤结果缓存
 13. **评估统计缓存**：评估统计数据缓存，避免重复计算
 14. **表级向量缓存**：表级向量结果缓存，提升搜索性能
+15. **实体解析缓存**：两阶段匹配处理结果缓存，提升解析速度
+16. **歧义处理缓存**：歧义检测和解决结果缓存
+17. **性能统计缓存**：实体解析性能统计缓存
 
 ### 并发处理
 
@@ -1728,6 +1931,8 @@ IM18 --> IM7
 13. **评估异步执行**：质量评估采用异步方式
 14. **统计异步更新**：运行时统计采用异步更新
 15. **表级向量异步**：表级向量生成采用异步处理
+16. **实体解析异步**：两阶段匹配处理采用异步方式
+17. **歧义处理异步**：歧义检测和解决采用异步处理
 
 ### 内存管理
 
@@ -1745,6 +1950,8 @@ IM18 --> IM7
 12. **字段过滤缓存**：智能字段过滤结果缓存
 13. **评估统计内存管理**：运行时统计采用内存缓存
 14. **表级向量内存管理**：表级向量采用内存缓存
+15. **实体解析内存管理**：两阶段匹配处理采用内存缓存
+16. **歧义处理内存管理**：歧义检测和解决采用内存缓存
 
 ### 评估系统性能优化
 
@@ -1758,6 +1965,8 @@ IM18 --> IM7
 6. **资源限制**：评估过程中的资源使用限制
 7. **错误恢复**：评估失败时的自动恢复机制
 8. **表级向量优化**：表级向量搜索采用智能重排序
+9. **实体解析优化**：单次查询替代循环多次查询
+10. **歧义处理优化**：智能歧义检测和解决机制
 
 ## 故障排除指南
 
@@ -2053,12 +2262,46 @@ IM18 --> IM7
 - 重建向量存储
 - 清理表级向量缓存
 
+#### 19. 实体解析系统问题
+
+**症状**：实体解析失败或性能问题
+
+**排查步骤**：
+1. 检查实体解析配置
+2. 验证两阶段匹配处理
+3. 查看歧义处理机制
+4. 检查实体跟踪监控
+
+**解决方法**：
+- 更新实体解析配置
+- 验证两阶段匹配逻辑
+- 检查歧义检测算法
+- 清理实体解析缓存
+- 修复实体跟踪功能
+
+#### 20. 实体跟踪监控问题
+
+**症状**：实体解析过程无法正确跟踪或统计
+
+**排查步骤**：
+1. 检查实体跟踪配置
+2. 验证性能统计逻辑
+3. 查看日志记录
+4. 检查统计数据库
+
+**解决方法**：
+- 更新实体跟踪配置
+- 验证性能统计算法
+- 检查日志记录功能
+- 修复统计数据库连接
+
 ### 日志分析
 
 系统提供了详细的日志记录功能：
 
 #### 日志级别
 
+- **TRACE**：开发调试信息，用于详细流程追踪
 - **DEBUG**：开发调试信息
 - **INFO**：一般运行信息
 - **WARN**：警告信息
@@ -2086,6 +2329,9 @@ LOG_MAX_FILES=5
 - **错误处理**：记录评估过程中的错误和异常
 - **表级向量化**：记录表级向量生成和存储过程
 - **智能搜索**：记录智能搜索的执行和重排序过程
+- **实体解析跟踪**：记录实体解析过程和性能统计
+- **歧义处理记录**：记录歧义检测和解决过程
+- **两阶段匹配记录**：记录两阶段匹配处理过程
 
 **章节来源**
 - [logger.js:28-41](file://NL2SQL/backend/src/utils/logger.js#L28-L41)
@@ -2123,6 +2369,11 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 23. **增强元数据管理**：表级向量包含域标签、数据类型等元数据
 24. **核心特征词提取**：从表名、描述和字段中提取强动作特征词
 25. **评估系统增强**：支持表级向量的质量评估和统计监控
+26. **实体解析优化**：单次查询替代循环多次查询，显著提升性能
+27. **歧义处理机制**：智能检测和解决实体解析歧义
+28. **实体跟踪监控**：完整的实体解析过程追踪和统计
+29. **两阶段匹配处理**：长期记忆+数据库模糊匹配的智能组合
+30. **性能监控功能**：实体解析过程的完整性能统计和监控
 
 ### 功能特色
 
@@ -2130,7 +2381,7 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 2. **语义检索**：向量数据库实现智能匹配
 3. **实时交互**：WebSocket实现实时通信
 4. **安全控制**：多重安全验证机制
-5. **实体映射**：模糊描述到具体ID的智能解析
+5. **实体映射**：模糊描述到具体ID的智能解析，包含两阶段匹配处理
 6. **上下文理解**：深度融合对话历史的智能分析
 7. **富文本展示**：Markdown渲染提供美观界面
 8. **长期记忆**：智能学习用户偏好和查询模式
@@ -2151,6 +2402,11 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 23. **元数据标签增强**：表级向量包含域标签和数据类型
 24. **特征词提取优化**：强动作特征词提升检索区分度
 25. **评估系统完善**：支持表级向量的质量评估
+26. **实体解析性能优化**：单次查询替代循环多次查询
+27. **歧义处理智能增强**：多候选匹配时的智能澄清处理
+28. **实体跟踪完整化**：实体解析过程的完整追踪和统计
+29. **两阶段匹配智能化**：长期记忆+数据库模糊匹配的智能组合
+30. **性能监控全面化**：实体解析系统的完整性能统计和监控
 
 ### 应用价值
 
@@ -2187,5 +2443,15 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 扩展元数据标签体系
 - 优化特征词提取算法
 - 增强评估系统的可扩展性
+- 优化实体解析系统的性能
+- 增强歧义处理的智能化程度
+- 扩展实体跟踪监控的范围
+- 优化两阶段匹配处理的效率
+- 增强查询优化的智能性
+- 扩展性能统计的维度
+- 优化实体跟踪的准确性
+- 增强歧义检测的精度
+- 扩展匹配处理的场景
+- 优化查询优化的效果
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

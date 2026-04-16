@@ -218,60 +218,55 @@ async function vectorizeSchema() {
   logger.info('开始将Schema向量化（表级表征模式）...');
   
   try {
-    // 准备要向量化的文本数组（表级）
-    const texts = [];
-    const metadata = [];
+    logger.info(`准备向量化 ${schemaData.tables.length} 个表级表征（增量更新模式）`);
     
-    // 遍历所有表，构造表级描述文本
+    // 统计信息
+    let updatedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    
+    // 遍历所有表，使用增量更新
     for (const table of schemaData.tables) {
-      // 【核心】生成表级表征文本
-      const tableRepresentation = buildTableRepresentation(table);
-      
-      texts.push(tableRepresentation.text);
-      metadata.push({
-        type: 'table',
-        name: table.name,
-        name_cn: table.name_cn,
-        // 【新增】元数据标签用于过滤
-        scope: tableRepresentation.scope,
-        data_type: tableRepresentation.dataType,
-        // 【新增】核心特征词用于调试
-        key_features: tableRepresentation.keyFeatures
-      });
-    }
-    
-    logger.info(`准备向量化 ${texts.length} 个表级表征`);
-    
-    // 分批获取Embedding向量
-    const batchSize = 20;
-    const allEmbeddings = [];
-    
-    for (let i = 0; i < texts.length; i += batchSize) {
-      const batchTexts = texts.slice(i, i + batchSize);
-      
-      logger.debug(`正在处理第 ${i / batchSize + 1} 批 Embedding，共 ${batchTexts.length} 个表`);
-      
       try {
-        const batchEmbeddings = await llmService.getEmbedding(batchTexts);
-        allEmbeddings.push(...batchEmbeddings);
+        // 【核心】生成表级表征文本
+        const tableRepresentation = buildTableRepresentation(table);
+        
+        // 获取Embedding向量
+        const embedding = await llmService.getEmbedding(tableRepresentation.text);
+        
+        // 【优化】使用增量更新替代全量重建
+        const result = await vectorStore.upsertSchemaVector(
+          table.name,
+          tableRepresentation.text,
+          embedding,
+          {
+            type: 'table',
+            name: table.name,
+            name_cn: table.name_cn,
+            scope: tableRepresentation.scope,
+            data_type: tableRepresentation.dataType,
+            key_features: tableRepresentation.keyFeatures
+          }
+        );
+        
+        if (result.updated) {
+          updatedCount++;
+        } else if (result.reason === 'no_change') {
+          skippedCount++;
+        }
+        
       } catch (error) {
-        logger.error(`第 ${i / batchSize + 1} 批 Embedding 失败:`, error);
-        // 继续处理下一批
+        logger.error(`表 ${table.name} 向量化失败:`, error);
+        errorCount++;
+        // 继续处理下一个表
       }
     }
     
-    // 存储到向量数据库
-    if (allEmbeddings.length > 0) {
-      await vectorStore.addSchemaVectors(
-        texts.slice(0, allEmbeddings.length), 
-        allEmbeddings, 
-        metadata.slice(0, allEmbeddings.length)
-      );
-    }
-    
-    logger.info('Schema表级向量化完成', { 
-      tableCount: texts.length,
-      vectorCount: allEmbeddings.length 
+    logger.info('Schema表级向量化完成（增量更新）', { 
+      tableCount: schemaData.tables.length,
+      updated: updatedCount,
+      skipped: skippedCount,
+      errors: errorCount
     });
     
   } catch (error) {

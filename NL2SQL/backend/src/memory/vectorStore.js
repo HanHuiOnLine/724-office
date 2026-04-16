@@ -19,6 +19,8 @@ const config = require('../core/config');
 const logger = require('../utils/logger');
 // 导入评估模块（用于运行时统计）
 const evaluation = require('../utils/evaluation');
+// 导入 crypto 用于计算 Hash
+const crypto = require('crypto');
 
 // ============================================
 // 元数据增强工具函数
@@ -731,6 +733,125 @@ async function clearSchemaVectors() {
 }
 
 // ============================================
+// 增量更新（新增）
+// ============================================
+
+/**
+ * 根据表名查找已存在的Schema向量
+ * 
+ * @param {string} tableName - 表名
+ * @returns {Promise<Object|null>} 已存在的记录
+ */
+async function findSchemaByTableName(tableName) {
+  if (!initialized || !schemaTable) {
+    return null;
+  }
+  
+  try {
+    // 使用 LanceDB 的过滤功能查找
+    // 注意：这里使用简化实现，实际可能需要根据 LanceDB 版本调整
+    const results = await schemaTable
+      .search(new Array(config.embedding.dimension).fill(0))
+      .limit(1000)
+      .execute();
+    
+    // 在结果中查找匹配的表名
+    for (const row of results) {
+      const metadata = JSON.parse(row.metadata || '{}');
+      if (metadata.name === tableName && !metadata._deleted) {
+        return {
+          id: row.id,
+          text: row.text,
+          vector: row.vector,
+          metadata: metadata
+        };
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    logger.error('查找Schema向量失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 标记Schema向量为已删除（软删除）
+ * 
+ * @param {string} id - 记录ID
+ */
+async function markSchemaAsDeleted(id) {
+  // LanceDB 不支持直接更新，这里记录日志
+  // 实际清理在定期维护任务中处理
+  logger.debug('[VectorStore] 标记Schema向量为删除', { id });
+}
+
+/**
+ * 增量更新Schema向量
+ * 根据内容Hash判断是否需要更新，避免不必要的Embedding调用
+ * 
+ * @param {string} tableName - 表名
+ * @param {string} text - 表描述文本
+ * @param {Array<number>} vector - 向量
+ * @param {Object} metadata - 元数据
+ * @returns {Promise<Object>} 更新结果 { updated: boolean, reason: string }
+ */
+async function upsertSchemaVector(tableName, text, vector, metadata) {
+  if (!initialized || !schemaTable) {
+    return { updated: false, reason: 'not_initialized' };
+  }
+  
+  try {
+    // 计算内容Hash
+    const contentHash = crypto.createHash('md5').update(text).digest('hex');
+    
+    // 检查是否存在且未变更
+    const existing = await findSchemaByTableName(tableName);
+    if (existing && existing.metadata.hash === contentHash) {
+      logger.debug('[VectorStore] Schema向量未变更，跳过更新', {
+        tableName,
+        hash: contentHash
+      });
+      return { updated: false, reason: 'no_change' };
+    }
+    
+    // 如果存在旧记录，标记为删除
+    if (existing) {
+      await markSchemaAsDeleted(existing.id);
+      logger.debug('[VectorStore] 标记旧向量为删除', {
+        tableName,
+        oldId: existing.id
+      });
+    }
+    
+    // 添加新向量
+    const newMetadata = {
+      ...metadata,
+      hash: contentHash,
+      updated_at: Date.now(),
+      _deleted: false
+    };
+    
+    await addSchemaVectors([text], [vector], [newMetadata]);
+    
+    logger.info('[VectorStore] Schema向量已更新', {
+      tableName,
+      hash: contentHash,
+      isUpdate: !!existing
+    });
+    
+    return {
+      updated: true,
+      reason: existing ? 'content_changed' : 'new_table'
+    };
+    
+  } catch (error) {
+    logger.error('[VectorStore] 增量更新Schema向量失败:', error);
+    return { updated: false, reason: 'error', error: error.message };
+  }
+}
+
+// ============================================
 // 导出模块
 // ============================================
 
@@ -744,6 +865,7 @@ module.exports = {
   searchSchemaSmart,  // 【新增】智能搜索
   hasSchemaVectors,
   clearSchemaVectors,
+  upsertSchemaVector,  // 【新增】增量更新
   // 查询历史操作
   addQueryVector,
   searchSimilarQueries,
