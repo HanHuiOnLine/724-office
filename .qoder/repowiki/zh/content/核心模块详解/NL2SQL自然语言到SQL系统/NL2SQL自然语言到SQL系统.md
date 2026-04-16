@@ -16,12 +16,14 @@
 - [memoryMaintenance.js](file://NL2SQL/backend/src/memory/memoryMaintenance.js)
 - [summarizer.js](file://NL2SQL/backend/src/memory/summarizer.js)
 - [tokenBudget.js](file://NL2SQL/backend/src/utils/tokenBudget.js)
+- [evaluation.js](file://NL2SQL/backend/src/utils/evaluation.js)
 - [main.js](file://NL2SQL/frontend/src/main.js)
 - [router.js](file://NL2SQL/frontend/src/router/index.js)
 - [session.js](file://NL2SQL/frontend/src/stores/session.js)
 - [markdownRenderer.js](file://NL2SQL/frontend/src/utils/markdownRenderer.js)
 - [ChatView.vue](file://NL2SQL/frontend/src/views/ChatView.vue)
 - [MemoryView.vue](file://NL2SQL/frontend/src/views/MemoryView.vue)
+- [EvaluationView.vue](file://NL2SQL/frontend/src/views/EvaluationView.vue)
 - [package.json](file://NL2SQL/backend/package.json)
 - [package.json](file://NL2SQL/frontend/package.json)
 - [context-management.test.js](file://NL2SQL/backend/test/context-management.test.js)
@@ -29,12 +31,12 @@
 
 ## 更新摘要
 **变更内容**
-- 新增紧凑Schema输出机制，显著减少Token消耗和处理时间
-- 优化表选择逻辑，提升Schema处理效率和准确性
-- 增强智能字段过滤功能，提供更精准的Schema信息
-- 完善令牌预算管理，确保系统稳定性
-- 扩展对话摘要机制，支持智能压缩和缓存
-- 优化向量存储元数据管理，提升检索质量
+- 新增向量评估系统，提供完整的监控和质量保证能力
+- 实时向量搜索质量评估功能
+- 历史查询相似性测试和统计跟踪机制
+- 增强的运行时统计和报告功能
+- 新增评估配置管理和阈值控制
+- 完善的前端评估界面和API集成
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -70,6 +72,10 @@ NL2SQL自然语言到SQL系统是一个智能数据查询平台，能够将用�
 - **对话摘要**：基于令牌预算的智能压缩机制
 - **紧凑Schema输出**：优化的Schema信息展示和处理
 - **智能字段过滤**：精准的Schema字段选择和展示
+- **向量评估系统**：完整的监控和质量保证能力
+- **实时统计跟踪**：向量检索命中率和记忆命中率统计
+- **质量评估接口**：Schema向量化质量和查询相似度评估
+- **阈值控制机制**：可配置的质量评估阈值和标准
 
 ## 项目结构
 
@@ -82,9 +88,10 @@ FE1[ChatView.vue]
 FE2[SchemaView.vue]
 FE3[HistoryView.vue]
 FE4[MemoryView.vue]
-FE5[Session Store]
-FE6[Router]
-FE7[Markdown Renderer]
+FE5[EvaluationView.vue]
+FE6[Session Store]
+FE7[Router]
+FE8[Markdown Renderer]
 end
 subgraph "后端服务 (Node.js)"
 BE1[App.js]
@@ -105,6 +112,8 @@ BE15[对话摘要机制]
 BE16[令牌预算管理]
 BE17[紧凑Schema输出]
 BE18[智能字段过滤]
+BE19[评估系统模块]
+BE20[日志系统]
 end
 subgraph "数据存储"
 DS1[SQLite数据库]
@@ -115,9 +124,10 @@ FE1 --> BE6
 FE2 --> BE7
 FE3 --> BE7
 FE4 --> BE7
-FE5 --> BE6
+FE5 --> BE19
 FE6 --> FE1
-FE7 --> BE2
+FE7 --> FE1
+FE8 --> BE2
 BE1 --> BE2
 BE2 --> BE3
 BE2 --> BE4
@@ -135,6 +145,7 @@ BE15 --> BE2
 BE16 --> BE2
 BE17 --> BE2
 BE18 --> BE2
+BE19 --> BE20
 BE4 --> DS3
 BE5 --> DS1
 BE4 --> DS2
@@ -145,12 +156,14 @@ BE4 --> DS2
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 - [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
 
 **章节来源**
 - [app.js:1-266](file://NL2SQL/backend/src/app.js#L1-L266)
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 - [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
 
 ## 核心组件
 
@@ -168,7 +181,7 @@ BE4 --> DS2
 管理数据库Schema元数据，提供Schema查询、匹配和验证功能。**优化**表选择逻辑，支持智能上下文匹配和紧凑Schema输出。
 
 #### 4. 向量存储模块
-基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。**增强**元数据管理和查询类型分类。
+基于LanceDB实现向量数据库，支持Schema和查询历史的语义检索。**增强**元数据管理和查询类型分类，**新增**智能搜索功能。
 
 #### 5. 数据库管理
 使用SQLite存储会话历史、消息记录、查询日志和用户偏好。
@@ -206,17 +219,25 @@ BE4 --> DS2
 #### 16. 智能字段过滤功能
 **新增**基于查询意图的字段智能过滤，自动识别和展示相关字段。
 
+#### 17. 向量评估系统
+**新增**完整的监控和质量保证系统，提供实时向量搜索质量评估、历史查询相似性测试和统计跟踪机制。
+
+#### 18. 日志系统
+**新增**增强的日志记录功能，支持评估相关的详细日志记录和追踪。
+
 **章节来源**
 - [nl2sqlEngine.js:1-2010](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1-L2010)
 - [llmService.js:1-432](file://NL2SQL/backend/src/core/llmService.js#L1-L432)
 - [schemaLoader.js:1-933](file://NL2SQL/backend/src/core/schemaLoader.js#L1-L933)
-- [vectorStore.js:1-633](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L633)
+- [vectorStore.js:1-759](file://NL2SQL/backend/src/memory/vectorStore.js#L1-L759)
 - [database.js:1-850](file://NL2SQL/backend/src/core/database.js#L1-L850)
 - [wsHandler.js:1-451](file://NL2SQL/backend/src/core/wsHandler.js#L1-L451)
 - [longTermMemory.js:1-1134](file://NL2SQL/backend/src/memory/longTermMemory.js#L1-L1134)
 - [memoryMaintenance.js:1-415](file://NL2SQL/backend/src/memory/memoryMaintenance.js#L1-L415)
 - [summarizer.js:1-518](file://NL2SQL/backend/src/memory/summarizer.js#L1-L518)
 - [tokenBudget.js:1-435](file://NL2SQL/backend/src/utils/tokenBudget.js#L1-L435)
+- [evaluation.js:1-488](file://NL2SQL/backend/src/utils/evaluation.js#L1-L488)
+- [logger.js:1-442](file://NL2SQL/backend/src/utils/logger.js#L1-L442)
 
 ### 前端核心组件
 
@@ -234,10 +255,14 @@ BE4 --> DS2
 - SchemaView：数据Schema展示
 - HistoryView：查询历史记录
 - MemoryView：**新增**长期记忆管理界面
+- EvaluationView：**新增**系统评估和监控界面
 - SchemaViewer：Schema可视化组件
 
 #### 5. Markdown渲染系统
 **新增**集成markdown-it、Shiki、Mermaid.js、KaTeX，提供丰富的前端展示功能。
+
+#### 6. 评估界面
+**新增**EvaluationView组件，提供向量化质量评估和统计监控功能。
 
 **章节来源**
 - [main.js:1-89](file://NL2SQL/frontend/src/main.js#L1-L89)
@@ -245,6 +270,7 @@ BE4 --> DS2
 - [session.js:1-383](file://NL2SQL/frontend/src/stores/session.js#L1-L383)
 - [ChatView.vue:1-692](file://NL2SQL/frontend/src/views/ChatView.vue#L1-L692)
 - [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 
 ## 架构概览
@@ -258,6 +284,7 @@ UI[Vue.js前端]
 WS[WebSocket客户端]
 MR[Markdown渲染器]
 MV[MemoryView]
+EV[EvaluationView]
 end
 subgraph "应用层"
 API[RESTful API]
@@ -275,6 +302,8 @@ ENDPOINT4[SQL生成增强端点]
 ENDPOINT5[Schema加载器增强端点]
 ENDPOINT6[紧凑Schema输出端点]
 ENDPOINT7[智能字段过滤端点]
+EVAL_ENDPOINT[评估系统端点]
+ENDPOINT8[统计报告端点]
 end
 subgraph "服务层"
 LLM[LLM服务]
@@ -290,6 +319,9 @@ SQLGEN[SQL生成服务]
 SCHEMA_ENH[Schema增强服务]
 COMPACT_SCHEMA[紧凑Schema服务]
 FIELD_FILTER[字段过滤服务]
+EVAL_SERVICE[评估服务]
+STATS_SERVICE[统计服务]
+LOG_SERVICE[日志服务]
 end
 subgraph "数据层"
 SQLITE[SQLite数据库]
@@ -299,6 +331,7 @@ end
 UI --> API
 UI --> MR
 UI --> MV
+UI --> EV
 WS --> WS_SERVER
 WS_SERVER --> ENGINE
 API --> ENGINE
@@ -315,6 +348,9 @@ ENGINE --> SQLGEN
 ENGINE --> SCHEMA_ENH
 ENGINE --> COMPACT_SCHEMA
 ENGINE --> FIELD_FILTER
+ENGINE --> EVAL_SERVICE
+EVAL_SERVICE --> STATS_SERVICE
+EVAL_SERVICE --> LOG_SERVICE
 SCHEMA --> METADATA
 ENGINE --> SQLITE
 ENGINE --> LANCEDB
@@ -329,13 +365,17 @@ COMPACT_SCHEMA --> SCHEMA
 FIELD_FILTER --> SCHEMA
 TOKEN --> ENGINE
 SUMMARIZE --> ENGINE
+STATS_SERVICE --> SQLITE
+STATS_SERVICE --> LANCEDB
+LOG_SERVICE --> LOG_FILE
 ```
 
 **图表来源**
 - [app.js:88-111](file://NL2SQL/backend/src/app.js#L88-L111)
-- [routes.js:1-538](file://NL2SQL/backend/src/core/routes.js#L1-L538)
+- [routes.js:1-1037](file://NL2SQL/backend/src/core/routes.js#L1-L1037)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 - [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
 
 ### 数据流架构
 
@@ -353,6 +393,8 @@ participant CompactSchema as 紧凑Schema输出
 participant FieldFilter as 智能字段过滤
 participant LLM as LLM服务
 participant Schema as Schema加载器
+participant Vector as 向量存储
+participant Eval as 评估系统
 participant DB as 数据库
 Client->>WS : 发送查询请求
 WS->>Engine : 处理查询
@@ -369,6 +411,10 @@ Context-->>Engine : 上下文增强结果
 Engine->>LLM : 分析用户意图
 LLM-->>Engine : 意图分析结果
 Engine->>Schema : 搜索相关表(含平台上下文)
+Schema->>Vector : 执行向量搜索
+Vector->>Eval : 记录向量搜索统计
+Eval-->>Vector : 返回统计结果
+Vector-->>Schema : 搜索结果
 Schema->>CompactSchema : 生成紧凑Schema输出
 CompactSchema->>FieldFilter : 应用智能字段过滤
 FieldFilter-->>CompactSchema : 过滤后的字段
@@ -393,6 +439,8 @@ WS-->>Client : 发送响应
 - [wsHandler.js:197-247](file://NL2SQL/backend/src/core/wsHandler.js#L197-L247)
 - [nl2sqlEngine.js:596-778](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L596-L778)
 - [longTermMemory.js:827-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L827-L965)
+- [vectorStore.js:426-427](file://NL2SQL/backend/src/memory/vectorStore.js#L426-L427)
+- [evaluation.js:71-96](file://NL2SQL/backend/src/utils/evaluation.js#L71-L96)
 
 ## 详细组件分析
 
@@ -652,14 +700,194 @@ LearnMappings --> ReturnResult[返回学习结果]
 **图表来源**
 - [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
 
+### 向量评估系统分析
+
+**新增**向量评估系统是系统的重要创新，提供了完整的监控和质量保证能力：
+
+#### 核心功能架构
+
+```mermaid
+classDiagram
+class EvaluationSystem {
++evaluateSchemaVectorQuality(llmService, vectorStore, testQueries) Promise~Object~
++evaluateQueryVectorQuality(llmService, testPairs) Promise~Object~
++calculateCosineSimilarity(vec1, vec2) number
++recordVectorSearch(type, results) void
++recordMemoryHit(type, hit) void
++getVectorSearchStats() Object
++getLongTermMemoryStats() Object
++getFullStatsReport() Object
++resetStats() void
+}
+class EvaluationConfig {
++enabled : boolean
++trackStats : boolean
++thresholds : Object
++highSimilarity : number
++mediumSimilarity : number
++highQuality : number
++mediumQuality : number
+}
+class RuntimeStats {
++vectorSearch : Object
++longTermMemory : Object
++schema : Object
++query : Object
++distanceDistribution : Object
++totalQueries : number
++memoryHitCount : number
++byType : Object
+}
+class TestDatasets {
++DEFAULT_SCHEMA_TEST_QUERIES : Array
++DEFAULT_QUERY_SIMILARITY_PAIRS : Array
+}
+EvaluationSystem --> EvaluationConfig : "使用"
+EvaluationSystem --> RuntimeStats : "管理"
+EvaluationSystem --> TestDatasets : "使用"
+```
+
+**图表来源**
+- [evaluation.js:19-31](file://NL2SQL/backend/src/utils/evaluation.js#L19-L31)
+- [evaluation.js:37-60](file://NL2SQL/backend/src/utils/evaluation.js#L37-L60)
+- [evaluation.js:435-459](file://NL2SQL/backend/src/utils/evaluation.js#L435-L459)
+
+#### 实时向量搜索质量评估
+
+**新增**实时向量搜索质量评估功能：
+
+```mermaid
+stateDiagram-v2
+[*] --> 生成查询向量
+生成查询向量 --> 执行向量搜索
+执行向量搜索 --> 智能重排序
+智能重排序 --> 提取表名
+提取表名 --> 计算精度指标
+计算精度指标 --> 记录评估结果
+记录评估结果 --> [*]
+```
+
+**图表来源**
+- [evaluation.js:158-266](file://NL2SQL/backend/src/utils/evaluation.js#L158-L266)
+
+评估流程包括：
+1. **查询向量生成**：使用LLM服务生成查询向量
+2. **智能搜索执行**：使用searchSchemaSmart进行语义搜索
+3. **结果重排序**：基于游戏提及、平台优先级等策略重排序
+4. **表名提取**：从元数据中提取检索到的表名
+5. **精度计算**：计算精确率、召回率、F1分数等指标
+6. **统计记录**：记录评估结果和详细信息
+
+#### 历史查询相似性测试
+
+**新增**历史查询相似性测试功能：
+
+```mermaid
+flowchart TD
+Start([开始相似性测试]) --> GenerateVectors[生成查询向量对]
+GenerateVectors --> CalculateSimilarity[计算余弦相似度]
+CalculateSimilarity --> CompareThresholds[比较阈值]
+CompareThresholds --> ClassifyResults[分类结果]
+ClassifyResults --> RecordStatistics[记录统计信息]
+RecordStatistics --> End([完成])
+```
+
+**图表来源**
+- [evaluation.js:276-334](file://NL2SQL/backend/src/utils/evaluation.js#L276-L334)
+
+相似性测试工作流程：
+1. **向量生成**：并行生成查询对的向量表示
+2. **相似度计算**：使用余弦相似度计算相似度
+3. **阈值比较**：与预设阈值比较进行分类
+4. **统计记录**：记录高、中、低相似度对的数量
+5. **误差计算**：计算平均误差指标
+
+#### 运行时统计跟踪
+
+**新增**运行时统计跟踪功能：
+
+```mermaid
+classDiagram
+class StatisticRecorder {
++recordVectorSearch(type, results) void
++recordMemoryHit(type, hit) void
++getVectorSearchStats() Object
++getLongTermMemoryStats() Object
++getFullStatsReport() Object
++resetStats() void
+}
+class VectorSearchStats {
++schema : Object
++query : Object
++distanceDistribution : Object
++searches : number
++hits : number
++hitRate : number
++veryClose : number
++close : number
++moderate : number
++far : number
+}
+class MemoryStats {
++totalQueries : number
++memoryHitCount : number
++byType : Object
++overall : Object
++field_alias : Object
++query_pattern : Object
++metric_preference : Object
++dimension_preference : Object
+}
+StatisticRecorder --> VectorSearchStats : "管理"
+StatisticRecorder --> MemoryStats : "管理"
+```
+
+**图表来源**
+- [evaluation.js:71-122](file://NL2SQL/backend/src/utils/evaluation.js#L71-L122)
+- [evaluation.js:344-391](file://NL2SQL/backend/src/utils/evaluation.js#L344-L391)
+
+统计跟踪功能包括：
+- **向量搜索统计**：记录Schema和查询向量的检索命中率
+- **距离分布统计**：记录向量距离分布情况
+- **长期记忆统计**：记录不同类型记忆的命中率
+- **实时更新**：在向量搜索和记忆查询时实时更新统计
+
+#### 评估配置管理
+
+**新增**评估配置管理功能：
+
+```mermaid
+classDiagram
+class ConfigManager {
++EVAL_CONFIG : Object
++EVAL_CONFIG.enabled : boolean
++EVAL_CONFIG.trackStats : boolean
++EVAL_CONFIG.thresholds : Object
++EVAL_CONFIG.thresholds.highSimilarity : number
++EVAL_CONFIG.thresholds.mediumSimilarity : number
++EVAL_CONFIG.thresholds.highQuality : number
++EVAL_CONFIG.thresholds.mediumQuality : number
+}
+class EnvironmentVariables {
++EVALUATION_ENABLED : string
++EVALUATION_TRACK_STATS : string
+}
+ConfigManager --> EnvironmentVariables : "读取"
+```
+
+**图表来源**
+- [evaluation.js:19-31](file://NL2SQL/backend/src/utils/evaluation.js#L19-L31)
+- [config.js:342-354](file://NL2SQL/backend/src/core/config.js#L342-L354)
+
+评估配置包括：
+- **功能开关**：通过环境变量控制评估功能启用
+- **统计跟踪**：控制运行时统计的记录
+- **阈值配置**：定义相似度和质量评估的阈值
+- **环境变量支持**：支持通过环境变量动态配置
+
 **章节来源**
-- [nl2sqlEngine.js:534-607](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L534-L607)
-- [nl2sqlEngine.js:689-728](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L689-L728)
-- [nl2sqlEngine.js:2042-2056](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L2042-L2056)
-- [nl2sqlEngine.js:1090-1288](file://NL2SQL/backend/src/core/nl2sqlEngine.js#L1090-L1288)
-- [longTermMemory.js:844-965](file://NL2SQL/backend/src/memory/longTermMemory.js#L844-L965)
-- [tokenBudget.js:1-435](file://NL2SQL/backend/src/utils/tokenBudget.js#L1-L435)
-- [summarizer.js:1-518](file://NL2SQL/backend/src/memory/summarizer.js#L1-L518)
+- [evaluation.js:1-488](file://NL2SQL/backend/src/utils/evaluation.js#L1-L488)
+- [config.js:342-354](file://NL2SQL/backend/src/core/config.js#L342-L354)
 
 ### 长期记忆模块分析
 
@@ -945,11 +1173,37 @@ EnhancedMetadata --> QueryTypes : "使用"
 - [vectorStore.js:137-193](file://NL2SQL/backend/src/memory/vectorStore.js#L137-L193)
 - [vectorStore.js:100-128](file://NL2SQL/backend/src/memory/vectorStore.js#L100-L128)
 
+#### 智能搜索功能
+
+**新增**智能搜索功能实现了基于查询意图的重排序：
+
+```mermaid
+stateDiagram-v2
+[*] --> 意图识别
+意图识别 --> 执行向量搜索
+执行向量搜索 --> 结果重排序
+结果重排序 --> 优先级计算
+优先级计算 --> 限制返回数量
+限制返回数量 --> 记录统计
+记录统计 --> [*]
+```
+
+**图表来源**
+- [vectorStore.js:450-536](file://NL2SQL/backend/src/memory/vectorStore.js#L450-L536)
+
+智能搜索策略包括：
+1. **游戏提及检测**：识别查询中的游戏关键词
+2. **优先级计算**：根据游戏提及、平台类型、数据类型等因素计算优先级
+3. **距离归一化**：将向量距离转换为优先级分数
+4. **结果重排序**：按优先级分数排序返回结果
+5. **统计记录**：记录智能搜索的统计信息
+
 **章节来源**
 - [vectorStore.js:201-230](file://NL2SQL/backend/src/memory/vectorStore.js#L201-L230)
 - [vectorStore.js:281-307](file://NL2SQL/backend/src/memory/vectorStore.js#L281-L307)
 - [vectorStore.js:137-193](file://NL2SQL/backend/src/memory/vectorStore.js#L137-L193)
 - [vectorStore.js:100-128](file://NL2SQL/backend/src/memory/vectorStore.js#L100-L128)
+- [vectorStore.js:450-536](file://NL2SQL/backend/src/memory/vectorStore.js#L450-L536)
 
 ### 数据库管理系统
 
@@ -1087,6 +1341,7 @@ subgraph "前端组件"
 CV[ChatView.vue]
 MR[MarkdownRenderer]
 MV[MemoryView.vue]
+EV[EvaluationView.vue]
 end
 MD --> SH
 MD --> ME
@@ -1097,12 +1352,14 @@ MR --> ME
 MR --> KA
 CV --> MR
 MV --> MR
+EV --> MR
 ```
 
 **图表来源**
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 - [ChatView.vue:223-238](file://NL2SQL/frontend/src/views/ChatView.vue#L223-L238)
 - [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
 
 #### 功能特性
 
@@ -1161,6 +1418,77 @@ DimensionPref --> JsonViewer
 **章节来源**
 - [MemoryView.vue:1-511](file://NL2SQL/frontend/src/views/MemoryView.vue#L1-L511)
 
+### 前端评估界面分析
+
+**新增**EvaluationView组件提供系统评估和监控功能：
+
+#### 视图功能架构
+
+```mermaid
+graph TB
+subgraph "评估界面"
+Header[头部区域<br/>系统评估标题]
+ConfigAlert[配置状态提示<br/>评估功能未启用提示]
+StatsOverview[统计概览卡片<br/>Schema检索命中率、查询历史命中率、长期记忆命中率]
+ActionButtons[操作按钮<br/>刷新统计、重置数据]
+DetailStats[详细统计<br/>向量检索距离分布、记忆类型命中率]
+QualityEvaluation[质量评估<br/>Schema向量化质量、查询相似度评估]
+EvaluationResults[评估结果<br/>详细指标和表格]
+end
+Header --> ConfigAlert
+ConfigAlert --> StatsOverview
+StatsOverview --> ActionButtons
+StatsOverview --> DetailStats
+DetailStats --> QualityEvaluation
+QualityEvaluation --> EvaluationResults
+```
+
+**图表来源**
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
+
+#### 统计监控功能
+
+评估界面提供了全面的统计监控功能：
+
+1. **实时统计展示**：显示向量检索命中率、记忆命中率等关键指标
+2. **距离分布可视化**：通过进度条展示向量距离分布
+3. **记忆类型分析**：按类型展示长期记忆的命中率统计
+4. **评估结果展示**：提供Schema向量化质量和查询相似度评估结果
+5. **操作控制**：支持刷新统计和重置数据操作
+
+#### API集成
+
+**新增**EvaluationView与后端API的完整集成：
+
+```mermaid
+sequenceDiagram
+participant UI as EvaluationView
+participant API as EvaluationAPI
+participant Backend as 后端评估接口
+UI->>API : 获取统计数据
+API->>Backend : GET /api/evaluation/stats
+Backend-->>API : 返回统计报告
+API-->>UI : 返回统计数据
+UI->>API : 运行评估
+API->>Backend : POST /api/evaluation/schema-quality
+Backend-->>API : 返回Schema评估结果
+API->>Backend : POST /api/evaluation/query-quality
+Backend-->>API : 返回查询评估结果
+API-->>UI : 返回评估结果
+UI->>API : 重置统计数据
+API->>Backend : POST /api/evaluation/stats/reset
+Backend-->>API : 确认重置
+API-->>UI : 返回重置结果
+```
+
+**图表来源**
+- [EvaluationView.vue:417-491](file://NL2SQL/frontend/src/views/EvaluationView.vue#L417-L491)
+- [routes.js:722-856](file://NL2SQL/backend/src/core/routes.js#L722-L856)
+
+**章节来源**
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
+- [routes.js:722-856](file://NL2SQL/backend/src/core/routes.js#L722-L856)
+
 ## 依赖关系分析
 
 系统具有清晰的依赖层次结构：
@@ -1201,6 +1529,9 @@ IM19[SQL生成增强]
 IM20[Schema加载器增强]
 IM21[紧凑Schema输出]
 IM22[智能字段过滤]
+IM23[评估系统]
+IM24[统计服务]
+IM25[日志服务]
 end
 EX1 --> IM9
 EX2 --> IM8
@@ -1232,6 +1563,9 @@ IM1 --> IM19
 IM1 --> IM20
 IM1 --> IM21
 IM1 --> IM22
+IM1 --> IM23
+IM1 --> IM24
+IM1 --> IM25
 IM9 --> IM7
 IM8 --> IM7
 IM7 --> IM5
@@ -1247,6 +1581,7 @@ IM7 --> IM19
 IM7 --> IM20
 IM7 --> IM21
 IM7 --> IM22
+IM7 --> IM23
 IM12 --> IM13
 IM12 --> IM3
 IM12 --> IM4
@@ -1259,6 +1594,11 @@ IM19 --> IM5
 IM20 --> IM5
 IM21 --> IM5
 IM22 --> IM5
+IM23 --> IM24
+IM23 --> IM25
+IM24 --> IM3
+IM24 --> IM4
+IM25 --> IM2
 IM5 --> IM4
 IM5 --> IM3
 IM11 --> IM7
@@ -1287,6 +1627,9 @@ IM18 --> IM7
 10. **预算层集成**：令牌预算管理集成到上下文控制
 11. **紧凑Schema层集成**：紧凑Schema输出集成到SQL生成
 12. **字段过滤层集成**：智能字段过滤集成到Schema处理
+13. **评估层集成**：评估系统集成到向量存储和记忆模块
+14. **统计层集成**：统计服务集成到评估系统
+15. **日志层集成**：日志服务集成到评估系统
 
 **章节来源**
 - [config.js:16-246](file://NL2SQL/backend/src/core/config.js#L16-L246)
@@ -1310,6 +1653,7 @@ IM18 --> IM7
 10. **预算状态缓存**：令牌预算状态缓存
 11. **紧凑Schema缓存**：紧凑Schema输出缓存
 12. **字段过滤缓存**：智能字段过滤结果缓存
+13. **评估统计缓存**：评估统计数据缓存，避免重复计算
 
 ### 并发处理
 
@@ -1325,6 +1669,8 @@ IM18 --> IM7
 10. **预算计算优化**：令牌估算采用批量处理
 11. **紧凑Schema异步**：紧凑Schema输出异步处理
 12. **字段过滤优化**：智能字段过滤采用缓存机制
+13. **评估异步执行**：质量评估采用异步方式
+14. **统计异步更新**：运行时统计采用异步更新
 
 ### 内存管理
 
@@ -1340,6 +1686,19 @@ IM18 --> IM7
 10. **预算状态跟踪**：令牌预算状态智能跟踪
 11. **紧凑Schema缓存**：紧凑Schema结果缓存
 12. **字段过滤缓存**：智能字段过滤结果缓存
+13. **评估统计内存管理**：运行时统计采用内存缓存
+
+### 评估系统性能优化
+
+**新增**评估系统的性能优化策略：
+
+1. **阈值控制**：通过配置阈值避免过度评估
+2. **统计采样**：运行时统计采用采样策略
+3. **异步评估**：质量评估采用异步执行
+4. **缓存策略**：评估结果和统计数据缓存
+5. **批量处理**：多个评估任务批量执行
+6. **资源限制**：评估过程中的资源使用限制
+7. **错误恢复**：评估失败时的自动恢复机制
 
 ## 故障排除指南
 
@@ -1585,6 +1944,39 @@ IM18 --> IM7
 - 检查前端错误日志
 - 重新发起网络请求
 
+#### 16. 评估系统问题
+
+**症状**：评估功能无法正常工作或结果异常
+
+**排查步骤**：
+1. 检查评估配置
+2. 验证环境变量设置
+3. 查看评估日志
+4. 检查向量存储状态
+
+**解决方法**：
+- 更新评估配置
+- 设置正确的环境变量
+- 检查评估日志错误
+- 修复向量存储问题
+- 清理评估统计数据
+
+#### 17. 评估界面问题
+
+**症状**：评估界面无法正确显示或操作异常
+
+**排查步骤**：
+1. 检查API连接状态
+2. 验证评估配置
+3. 查看前端错误信息
+4. 检查网络请求
+
+**解决方法**：
+- 修复API连接问题
+- 验证评估配置
+- 检查前端错误日志
+- 重新发起网络请求
+
 ### 日志分析
 
 系统提供了详细的日志记录功能：
@@ -1608,9 +2000,19 @@ LOG_MAX_SIZE=10MB
 LOG_MAX_FILES=5
 ```
 
+#### 评估相关日志
+
+**新增**评估系统的日志记录：
+
+- **评估开始**：记录评估任务的开始和配置
+- **评估结果**：记录评估的具体结果和指标
+- **统计更新**：记录运行时统计的更新
+- **错误处理**：记录评估过程中的错误和异常
+
 **章节来源**
 - [logger.js:28-41](file://NL2SQL/backend/src/utils/logger.js#L28-L41)
 - [config.js:195-208](file://NL2SQL/backend/src/core/config.js#L195-L208)
+- [evaluation.js:158-266](file://NL2SQL/backend/src/utils/evaluation.js#L158-L266)
 
 ## 结论
 
@@ -1634,6 +2036,10 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 14. **增强向量存储**：智能元数据和查询类型分类
 15. **紧凑Schema输出**：显著减少Token消耗和处理时间
 16. **智能字段过滤**：精准的Schema字段选择和展示
+17. **向量评估系统**：完整的监控和质量保证能力
+18. **实时统计跟踪**：向量检索命中率和记忆命中率统计
+19. **质量评估接口**：Schema向量化质量和查询相似度评估
+20. **阈值控制机制**：可配置的质量评估阈值和标准
 
 ### 功能特色
 
@@ -1654,6 +2060,9 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 15. **增强元数据**：智能查询类型分类和重要性评分
 16. **紧凑Schema输出**：优化的Schema信息展示和处理
 17. **智能字段过滤**：基于查询意图的字段精准过滤
+18. **向量评估系统**：实时监控和质量保证能力
+19. **统计报告功能**：详细的运行时统计和报告
+20. **阈值配置管理**：灵活的质量评估标准设置
 
 ### 应用价值
 
@@ -1682,5 +2091,8 @@ NL2SQL自然语言到SQL系统是一个功能完整、架构清晰的智能数�
 - 增强紧凑Schema输出的自适应能力
 - 优化智能字段过滤的准确性
 - 扩展令牌预算管理的智能化程度
+- 增强向量评估系统的实时性
+- 优化统计跟踪的准确性
+- 扩展评估阈值的自适应能力
 
 系统为构建企业级智能数据查询平台奠定了坚实的基础，具有广阔的应用前景和发展潜力。

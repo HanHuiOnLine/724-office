@@ -189,8 +189,14 @@ function buildMaps() {
 }
 
 /**
- * 将Schema信息向量化并存储
- * 用于语义检索匹配相关表和字段
+ * 【优化】将Schema信息向量化并存储 - 表级表征版本
+ * 
+ * 核心改进：
+ * 1. 从"字段级向量"改为"表级向量"，每个表只生成一个向量
+ * 2. 表级文本浓缩核心业务含义，包含强动作特征词
+ * 3. 添加 scope 和 data_type 元数据标签用于过滤
+ * 
+ * 原理：只要表找对了，LLM 能根据字段描述自动对齐语义
  */
 async function vectorizeSchema() {
   // 检查是否强制重新向量化
@@ -209,66 +215,48 @@ async function vectorizeSchema() {
   }
   
   // 记录开始向量化日志
-  logger.info('开始将Schema向量化...');
+  logger.info('开始将Schema向量化（表级表征模式）...');
   
   try {
-    // 准备要向量化的文本数组
+    // 准备要向量化的文本数组（表级）
     const texts = [];
     const metadata = [];
     
-    // 遍历所有表，构造描述文本
+    // 遍历所有表，构造表级描述文本
     for (const table of schemaData.tables) {
-      // 构造表的描述文本
-      const tableText = `
-表名: ${table.name}
-中文名: ${table.name_cn || ''}
-描述: ${table.description || ''}
-字段: ${table.fields.map(f => f.name_cn || f.name).join(', ')}
-      `.trim();
+      // 【核心】生成表级表征文本
+      const tableRepresentation = buildTableRepresentation(table);
       
-      texts.push(tableText);
+      texts.push(tableRepresentation.text);
       metadata.push({
         type: 'table',
         name: table.name,
-        name_cn: table.name_cn
+        name_cn: table.name_cn,
+        // 【新增】元数据标签用于过滤
+        scope: tableRepresentation.scope,
+        data_type: tableRepresentation.dataType,
+        // 【新增】核心特征词用于调试
+        key_features: tableRepresentation.keyFeatures
       });
-      
-      // 遍历表的字段，构造字段描述文本
-      for (const field of table.fields) {
-        const fieldText = `
-字段: ${table.name}.${field.name}
-中文名: ${field.name_cn || ''}
-类型: ${field.type}
-描述: ${field.description || ''}
-所属表: ${table.name_cn || table.name}
-        `.trim();
-        
-        texts.push(fieldText);
-        metadata.push({
-          type: 'field',
-          table: table.name,
-          name: field.name,
-          name_cn: field.name_cn
-        });
-      }
     }
     
-    // 分批获取Embedding向量，避免单次请求过大导致超时
-    const batchSize = 20; // 每批20个文本，平衡速度和稳定性
+    logger.info(`准备向量化 ${texts.length} 个表级表征`);
+    
+    // 分批获取Embedding向量
+    const batchSize = 20;
     const allEmbeddings = [];
     
     for (let i = 0; i < texts.length; i += batchSize) {
       const batchTexts = texts.slice(i, i + batchSize);
-      const batchMetadata = metadata.slice(i, i + batchSize);
       
-      logger.debug(`正在处理第 ${i / batchSize + 1} 批 Embedding，共 ${batchTexts.length} 个文本`);
+      logger.debug(`正在处理第 ${i / batchSize + 1} 批 Embedding，共 ${batchTexts.length} 个表`);
       
       try {
         const batchEmbeddings = await llmService.getEmbedding(batchTexts);
         allEmbeddings.push(...batchEmbeddings);
       } catch (error) {
         logger.error(`第 ${i / batchSize + 1} 批 Embedding 失败:`, error);
-        // 继续处理下一批，不中断整个流程
+        // 继续处理下一批
       }
     }
     
@@ -281,12 +269,161 @@ async function vectorizeSchema() {
       );
     }
     
-    logger.info('Schema向量化完成', { count: texts.length });
+    logger.info('Schema表级向量化完成', { 
+      tableCount: texts.length,
+      vectorCount: allEmbeddings.length 
+    });
     
   } catch (error) {
     logger.error('Schema向量化失败:', error);
-    // 向量化失败不影响主流程，继续运行
+    // 向量化失败不影响主流程
   }
+}
+
+/**
+ * 【新增】构建表级表征文本
+ * 
+ * 将表的核心业务含义浓缩为一段文本，包含：
+ * - 域标签（平台/游戏/报表）
+ * - 表名和中文名
+ * - 数据源类型（原始日志/聚合报表）
+ * - 核心业务功能描述
+ * - 强动作特征词（用于提升检索区分度）
+ * 
+ * @param {Object} table - 表定义对象
+ * @returns {Object} 表级表征 { text, scope, dataType, keyFeatures }
+ */
+function buildTableRepresentation(table) {
+  const tableName = table.name;
+  const tableCnName = table.name_cn || '';
+  const description = table.description || '';
+  
+  // 1. 确定 scope（域标签）
+  let scope = 'unknown';
+  if (tableName.includes('tzpingtai') || tableName.includes('pf_')) {
+    scope = 'platform';
+  } else if (tableName.startsWith('new_tz')) {
+    // 提取游戏名，如 new_tzqingmu → game_qingmu
+    const gameMatch = tableName.match(/new_tz(\w+)/);
+    if (gameMatch) {
+      scope = `game_${gameMatch[1]}`;
+    }
+  } else if (tableName.includes('report') || tableName.includes('dwd_')) {
+    scope = 'report';
+  }
+  
+  // 2. 确定 data_type（数据源类型）
+  let dataType = 'raw_log';
+  if (tableName.includes('report') || tableName.includes('dwd_') || tableName.includes('analysis')) {
+    dataType = 'aggregated_report';
+  } else if (tableName.includes('dim_') || tableName.includes('dict')) {
+    dataType = 'dimension_table';
+  }
+  
+  // 3. 提取核心特征词（基于表名、描述和关键字段）
+  const keyFeatures = extractKeyFeatures(table);
+  
+  // 4. 构建表级表征文本
+  // 格式：[域:xxx] 表名:xxx (中文名) 类型:xxx 功能:xxx 核心特征:xxx
+  const text = `[域:${scope}] 表名:${tableName} (${tableCnName}) 类型:${dataType} 功能:${description} 核心特征:${keyFeatures.join('、')}`;
+  
+  return {
+    text: text,
+    scope: scope,
+    dataType: dataType,
+    keyFeatures: keyFeatures
+  };
+}
+
+/**
+ * 【新增】提取表的核心特征词
+ * 
+ * 基于表名、描述和关键字段，提取强动作特征词
+ * 用于提升向量检索的区分度
+ * 
+ * @param {Object} table - 表定义对象
+ * @returns {Array<string>} 特征词数组
+ */
+function extractKeyFeatures(table) {
+  const features = new Set();
+  const tableName = table.name.toLowerCase();
+  const description = (table.description || '').toLowerCase();
+  const nameCn = (table.name_cn || '').toLowerCase();
+  
+  // 1. 基于表名的特征词映射
+  const nameFeatureMap = {
+    // 注册相关
+    'reg': ['注册', '新增', '首入', 'signup'],
+    'register': ['注册', '新增', '首入'],
+    // 登录相关
+    'login': ['登录', '活跃', '在线', 'dau'],
+    // 付费相关
+    'order': ['付费', '订单', '流水', '成交', 'payment'],
+    'pay': ['付费', '充值', '支付'],
+    // 创角相关
+    'create_role': ['创角', '角色创建', 'create_role'],
+    'role': ['角色', '创角'],
+    // 首单相关
+    'first_order': ['首单', '首充', '首次付费'],
+    // 活跃相关
+    'act': ['活跃', 'dau', 'mau', '在线'],
+    'active': ['活跃', '在线'],
+    // 按钮点击
+    'button': ['点击', '按钮', '埋点'],
+    // 聊天相关
+    'chat': ['聊天', '发言', '消息'],
+    // 留存相关
+    'retain': ['留存', 'retention'],
+    // 在线时长
+    'online_time': ['在线时长', '时长'],
+    // 等级相关
+    'level': ['等级', '升级', 'level_up'],
+    // 任务相关
+    'task': ['任务', 'mission'],
+    // 商店相关
+    'shop': ['商店', '购买', '商城']
+  };
+  
+  // 匹配表名特征词
+  for (const [pattern, words] of Object.entries(nameFeatureMap)) {
+    if (tableName.includes(pattern)) {
+      words.forEach(w => features.add(w));
+    }
+  }
+  
+  // 2. 基于描述的特征词
+  const descKeywords = ['注册', '登录', '付费', '充值', '订单', '创角', '活跃', '留存', 
+                       '点击', '聊天', '等级', '任务', '商店', '时长', 'dau', '新增'];
+  for (const kw of descKeywords) {
+    if (description.includes(kw) || nameCn.includes(kw)) {
+      features.add(kw);
+    }
+  }
+  
+  // 3. 基于关键字段的特征词
+  const fieldKeywords = {
+    'channel_id': '渠道',
+    'game_id': '游戏',
+    'role_id': '角色',
+    'tz_account_id': '账号',
+    'create_time': '时间',
+    'real_amount': '实际金额',
+    'price': '价格'
+  };
+  
+  for (const field of table.fields || []) {
+    const fieldName = field.name.toLowerCase();
+    const fieldCn = (field.name_cn || '').toLowerCase();
+    
+    for (const [pattern, word] of Object.entries(fieldKeywords)) {
+      if (fieldName.includes(pattern) || fieldCn.includes(word)) {
+        features.add(word);
+      }
+    }
+  }
+  
+  // 返回前8个特征词（避免过多稀释权重）
+  return Array.from(features).slice(0, 8);
 }
 
 // ============================================
@@ -456,8 +593,9 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
     try {
       // 获取查询文本的Embedding
       const queryEmbedding = await llmService.getEmbedding(enhancedQuery);
-      // 在向量数据库中搜索
-      const results = await vectorStore.searchSchema(queryEmbedding, topK * 2); // 搜索更多结果用于过滤
+      
+      // 【优化】使用智能搜索（带查询意图识别和重排序）
+      const results = await vectorStore.searchSchemaSmart(queryEmbedding, enhancedQuery, topK * 2);
       
       // 提取表名并去重
       let tableNames = [...new Set([

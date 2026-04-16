@@ -11,18 +11,20 @@
 - [index.js](file://NL2SQL/frontend/src/stores/index.js)
 - [ChatView.vue](file://NL2SQL/frontend/src/views/ChatView.vue)
 - [HomeView.vue](file://NL2SQL/frontend/src/views/HomeView.vue)
+- [EvaluationView.vue](file://NL2SQL/frontend/src/views/EvaluationView.vue)
+- [HistoryView.vue](file://NL2SQL/frontend/src/views/HistoryView.vue)
+- [MemoryView.vue](file://NL2SQL/frontend/src/views/MemoryView.vue)
 - [SchemaViewer.vue](file://NL2SQL/frontend/src/components/SchemaViewer.vue)
 - [api.js](file://NL2SQL/frontend/src/utils/api.js)
 - [markdownRenderer.js](file://NL2SQL/frontend/src/utils/markdownRenderer.js)
 - [global.css](file://NL2SQL/frontend/src/styles/global.css)
-- [HistoryView.vue](file://NL2SQL/frontend/src/views/HistoryView.vue)
-- [MemoryView.vue](file://NL2SQL/frontend/src/views/MemoryView.vue)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 更新了聊天界面的Enter键处理机制说明，强调优化后的键盘事件处理
-- 增强了会话管理系统自动刷新机制的描述，重点说明结果返回时的会话列表刷新
+- 新增了EvaluationView.vue评估界面组件，提供可视化仪表板和实时数据统计
+- 更新了路由系统以支持新的评估页面
+- 增强了API服务以支持评估功能相关的接口调用
 - 完善了用户体验相关的交互细节说明
 
 ## 目录
@@ -48,6 +50,7 @@ NL2SQL前端增强功能是一个基于Vue 3的现代化自然语言数据查询
 - **Schema可视化**：提供数据表结构的交互式查看功能
 - **Markdown渲染**：支持富文本格式化和代码高亮
 - **长期记忆管理**：维护用户偏好和查询模式
+- **系统评估界面**：提供向量化质量评估和历史记忆命中率统计的可视化仪表板
 - **优化的键盘交互**：Enter键发送消息，Shift+Enter换行的精确控制
 
 ## 项目结构
@@ -72,15 +75,16 @@ E --> K[聊天界面]
 E --> L[历史记录]
 E --> M[Schema查看]
 E --> N[内存管理]
-F --> O[API服务]
-F --> P[Markdown渲染]
+E --> O[系统评估]
+F --> P[API服务]
+F --> Q[Markdown渲染]
 end
 ```
 
 **图表来源**
 - [main.js:55-89](file://NL2SQL/frontend/src/main.js#L55-L89)
 - [App.vue:82-230](file://NL2SQL/frontend/src/App.vue#L82-L230)
-- [index.js:1-147](file://NL2SQL/frontend/src/router/index.js#L1-L147)
+- [index.js:1-157](file://NL2SQL/frontend/src/router/index.js#L1-L157)
 
 **章节来源**
 - [package.json:1-36](file://NL2SQL/frontend/package.json#L1-L36)
@@ -151,12 +155,12 @@ SessionStore --> ApiClient : "调用"
 
 **图表来源**
 - [App.vue:82-230](file://NL2SQL/frontend/src/App.vue#L82-L230)
-- [session.js:33-397](file://NL2SQL/frontend/src/stores/session.js#L33-L397)
+- [session.js:33-400](file://NL2SQL/frontend/src/stores/session.js#L33-L400)
 - [SchemaViewer.vue:89-257](file://NL2SQL/frontend/src/components/SchemaViewer.vue#L89-L257)
 
 **章节来源**
 - [App.vue:1-373](file://NL2SQL/frontend/src/App.vue#L1-L373)
-- [session.js:1-398](file://NL2SQL/frontend/src/stores/session.js#L1-L398)
+- [session.js:1-400](file://NL2SQL/frontend/src/stores/session.js#L1-L400)
 
 ## 架构概览
 
@@ -171,21 +175,22 @@ C[HomeView.vue 首页]
 D[HistoryView.vue 历史记录]
 E[SchemaViewer.vue Schema查看]
 F[MemoryView.vue 内存管理]
+G[EvaluationView.vue 系统评估]
 end
 subgraph "状态管理层"
-G[session.js 会话状态]
-H[index.js Pinia实例]
+H[session.js 会话状态]
+I[index.js Pinia实例]
 end
 subgraph "路由层"
-I[index.js 路由配置]
+J[index.js 路由配置]
 end
 subgraph "服务层"
-J[api.js API服务]
-K[markdownRenderer.js Markdown渲染]
+K[api.js API服务]
+L[markdownRenderer.js Markdown渲染]
 end
 subgraph "工具层"
-L[vite.config.js 构建配置]
-M[global.css 全局样式]
+M[vite.config.js 构建配置]
+N[global.css 全局样式]
 end
 A --> B
 A --> C
@@ -193,22 +198,24 @@ A --> D
 A --> E
 A --> F
 A --> G
-A --> I
-B --> J
-C --> J
-D --> J
-E --> J
-F --> J
+A --> H
+A --> J
 B --> K
-A --> L
+C --> K
+D --> K
+E --> K
+F --> K
+G --> K
+B --> L
 A --> M
+A --> N
 ```
 
 **图表来源**
 - [App.vue:1-373](file://NL2SQL/frontend/src/App.vue#L1-L373)
-- [session.js:1-398](file://NL2SQL/frontend/src/stores/session.js#L1-L398)
-- [index.js:1-147](file://NL2SQL/frontend/src/router/index.js#L1-L147)
-- [api.js:1-252](file://NL2SQL/frontend/src/utils/api.js#L1-L252)
+- [session.js:1-400](file://NL2SQL/frontend/src/stores/session.js#L1-L400)
+- [index.js:1-157](file://NL2SQL/frontend/src/router/index.js#L1-L157)
+- [api.js:1-303](file://NL2SQL/frontend/src/utils/api.js#L1-L303)
 
 ## 详细组件分析
 
@@ -284,10 +291,10 @@ SessionStore --> SSEConnection : "维护"
 ```
 
 **图表来源**
-- [session.js:33-397](file://NL2SQL/frontend/src/stores/session.js#L33-L397)
+- [session.js:33-400](file://NL2SQL/frontend/src/stores/session.js#L33-L400)
 
 **章节来源**
-- [session.js:1-398](file://NL2SQL/frontend/src/stores/session.js#L1-L398)
+- [session.js:1-400](file://NL2SQL/frontend/src/stores/session.js#L1-L400)
 
 ### 聊天界面组件
 
@@ -374,6 +381,72 @@ MarkdownRenderer --> KaTeX : "集成"
 - [ChatView.vue:1-776](file://NL2SQL/frontend/src/views/ChatView.vue#L1-L776)
 - [markdownRenderer.js:1-258](file://NL2SQL/frontend/src/utils/markdownRenderer.js#L1-L258)
 
+### 系统评估界面组件
+
+**新增** 系统评估界面提供了全面的向量化质量评估和历史记忆统计功能，包含实时数据刷新和交互式统计展示。
+
+```mermaid
+flowchart TD
+A[用户访问评估页面] --> B[检查评估配置]
+B --> C{评估功能启用?}
+C --> |否| D[显示配置提示]
+C --> |是| E[加载统计数据]
+E --> F[显示统计概览]
+F --> G[显示详细统计]
+G --> H[执行质量评估]
+H --> I[显示评估结果]
+I --> J[刷新统计数据]
+```
+
+**图表来源**
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
+
+#### 评估界面功能特性
+
+**更新** 系统评估界面包含以下核心功能：
+
+- **配置状态提示**：当评估功能未启用时，显示详细的配置指导
+- **统计概览卡片**：展示Schema检索命中率、查询历史命中率、长期记忆命中率等关键指标
+- **详细统计展示**：提供向量检索距离分布和记忆类型命中率的详细分析
+- **质量评估功能**：支持Schema向量化质量和查询相似度评估
+- **实时数据刷新**：支持手动刷新统计数据和重置评估数据
+- **交互式统计展示**：使用进度条、表格和图表展示评估结果
+
+```mermaid
+classDiagram
+class EvaluationView {
++ref loading
++ref config
++ref vectorStats
++ref memoryStats
++ref evaluationResults
++computed totalDistCount
++getDistPercentage()
++getMemoryTypeName()
++getHitRateColor()
++getScoreTagType()
++refreshStats()
++resetStats()
++runEvaluation()
+}
+class EvaluationAPI {
++getStats()
++resetStats()
++getConfig()
++evaluateSchemaQuality()
++evaluateQueryQuality()
+}
+EvaluationView --> EvaluationAPI : "调用"
+```
+
+**图表来源**
+- [EvaluationView.vue:303-500](file://NL2SQL/frontend/src/views/EvaluationView.vue#L303-L500)
+- [api.js:260-302](file://NL2SQL/frontend/src/utils/api.js#L260-L302)
+
+**章节来源**
+- [EvaluationView.vue:1-699](file://NL2SQL/frontend/src/views/EvaluationView.vue#L1-L699)
+- [api.js:260-302](file://NL2SQL/frontend/src/utils/api.js#L260-L302)
+
 ### Schema查看组件
 
 Schema查看组件提供了数据表结构的交互式浏览功能，支持搜索和筛选。
@@ -416,15 +489,17 @@ A --> C[聊天 /chat/:sessionId?]
 A --> D[历史记录 /history]
 A --> E[Schema /schema]
 A --> F[内存 /memory]
-A --> G[404 /:pathMatch(.*)*]
-B --> H[HomeView]
-C --> I[ChatView]
-D --> J[HistoryView]
-E --> K[SchemaView]
-F --> L[MemoryView]
-G --> M[NotFoundView]
-N[全局前置守卫] --> O[设置页面标题]
-O --> P[导航放行]
+A --> G[评估 /evaluation]
+A --> H[404 /:pathMatch(.*)*]
+B --> I[HomeView]
+C --> J[ChatView]
+D --> K[HistoryView]
+E --> L[SchemaView]
+F --> M[MemoryView]
+G --> N[EvaluationView]
+H --> O[NotFoundView]
+P[全局前置守卫] --> Q[设置页面标题]
+Q --> R[导航放行]
 ```
 
 **图表来源**
@@ -432,7 +507,7 @@ O --> P[导航放行]
 - [index.js:132-140](file://NL2SQL/frontend/src/router/index.js#L132-L140)
 
 **章节来源**
-- [index.js:1-147](file://NL2SQL/frontend/src/router/index.js#L1-L147)
+- [index.js:1-157](file://NL2SQL/frontend/src/router/index.js#L1-L157)
 
 ## 依赖关系分析
 
@@ -522,12 +597,14 @@ pie title 代码分割策略
 - **图片和资源优化**：生产环境自动压缩和优化静态资源
 - **状态持久化**：会话状态在本地存储中持久化，提升用户体验
 - **自动刷新机制**：查询结果返回时自动刷新会话列表，确保界面数据一致性
+- **评估数据缓存**：评估界面支持手动刷新和重置功能，避免频繁请求
 
 ### 内存管理
 
 - **SSE连接管理**：及时清理不再使用的SSE连接，避免内存泄漏
 - **组件生命周期**：正确处理组件的挂载和卸载，释放资源
 - **事件监听器**：在组件销毁时移除事件监听器
+- **评估数据清理**：支持重置统计数据，防止内存累积
 
 ## 故障排除指南
 
@@ -540,18 +617,22 @@ B --> C[网络请求失败]
 B --> D[UI渲染异常]
 B --> E[状态管理问题]
 B --> F[SSE连接问题]
-C --> G[检查API代理配置]
-C --> H[验证后端服务状态]
-C --> I[查看网络面板]
-D --> J[检查组件更新]
-D --> K[验证数据结构]
-D --> L[查看控制台错误]
-E --> M[检查状态同步]
-E --> N[验证Action调用]
-E --> O[查看Pinia DevTools]
-F --> P[检查SSE URL]
-F --> Q[验证会话ID]
-F --> R[查看浏览器控制台]
+B --> G[评估功能异常]
+C --> H[检查API代理配置]
+C --> I[验证后端服务状态]
+C --> J[查看网络面板]
+D --> K[检查组件更新]
+D --> L[验证数据结构]
+D --> M[查看控制台错误]
+E --> N[检查状态同步]
+E --> O[验证Action调用]
+E --> P[查看Pinia DevTools]
+F --> Q[检查SSE URL]
+F --> R[验证会话ID]
+F --> S[查看浏览器控制台]
+G --> T[检查评估配置]
+G --> U[验证后端评估接口]
+G --> V[查看评估日志]
 ```
 
 ### 开发调试技巧
@@ -560,6 +641,7 @@ F --> R[查看浏览器控制台]
 2. **启用严格模式**：在开发环境中启用严格模式捕获状态修改错误
 3. **监控网络请求**：使用浏览器开发者工具监控API调用
 4. **SSE调试**：检查服务器发送事件的连接状态
+5. **评估功能调试**：检查评估配置和后端评估接口状态
 
 **章节来源**
 - [api.js:44-88](file://NL2SQL/frontend/src/utils/api.js#L44-L88)
@@ -577,6 +659,7 @@ NL2SQL前端增强功能展现了现代Vue 3应用的最佳实践，通过精心
 - **可扩展性**：良好的架构设计支持功能扩展
 - **精确的键盘控制**：优化的Enter键处理提供更好的输入体验
 - **智能自动刷新**：查询结果返回时自动更新会话列表
+- **全面的评估功能**：新增的系统评估界面提供可视化统计和质量评估
 
 ### 技术亮点
 
@@ -586,5 +669,6 @@ NL2SQL前端增强功能展现了现代Vue 3应用的最佳实践，通过精心
 - **状态管理最佳实践**：使用Pinia实现清晰的状态管理
 - **优化的键盘交互**：精确控制Enter键和Shift+Enter键的行为
 - **自动状态同步**：查询完成后自动刷新相关状态
+- **系统评估界面**：提供向量化质量评估和统计分析的完整解决方案
 
 该系统为后续的功能扩展和技术演进奠定了坚实的基础，是一个值得学习和参考的优秀前端项目实现。

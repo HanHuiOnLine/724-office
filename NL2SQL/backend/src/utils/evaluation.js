@@ -175,8 +175,8 @@ async function evaluateSchemaVectorQuality(llmService, vectorStore, testQueries)
       // 生成查询向量
       const queryVector = await llmService.getEmbedding(test.query);
       
-      // 执行向量搜索
-      const searchResults = await vectorStore.searchSchema(queryVector, 10);
+      // 【优化】使用智能搜索（带查询意图识别和重排序）
+      const searchResults = await vectorStore.searchSchemaSmart(queryVector, test.query, 10);
       
       // 【调试日志】记录搜索结果
       logger.info('[评估-调试] 向量搜索结果', {
@@ -189,9 +189,10 @@ async function evaluateSchemaVectorQuality(llmService, vectorStore, testQueries)
         }))
       });
       
-      // 评估结果
+      // 评估结果 - 从表级向量元数据中提取表名
+      // 新的表级向量元数据使用 metadata.name
       const retrievedTables = searchResults
-        .map(r => r.metadata?.table_name || r.metadata?.table)
+        .map(r => r.metadata?.name || r.metadata?.table_name || r.metadata?.table)
         .filter(Boolean);
       
       // 【调试日志】记录表名提取结果

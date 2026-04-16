@@ -372,9 +372,10 @@ async function addSchemaVectors(texts, vectors, metadataList) {
  * 
  * @param {Array<number>} queryVector - 查询向量
  * @param {number} topK - 返回结果数量
+ * @param {Object} filters - 可选的过滤条件 { scope, data_type }
  * @returns {Promise<Array>} 搜索结果
  */
-async function searchSchema(queryVector, topK = 5) {
+async function searchSchema(queryVector, topK = 5, filters = {}) {
   // 检查是否初始化
   if (!initialized || !schemaTable) {
     logger.warn('向量数据库未初始化，返回空结果');
@@ -382,24 +383,47 @@ async function searchSchema(queryVector, topK = 5) {
   }
   
   try {
+    // 构建查询
+    let searchQuery = schemaTable.search(queryVector);
+    
+    // 【新增】应用元数据过滤
+    if (filters.scope || filters.data_type) {
+      const conditions = [];
+      if (filters.scope) {
+        conditions.push(`metadata.scope = '${filters.scope}'`);
+      }
+      if (filters.data_type) {
+        conditions.push(`metadata.data_type = '${filters.data_type}'`);
+      }
+      // 注意：LanceDB 的 where 条件语法可能需要根据实际版本调整
+      // 这里使用简化实现，实际过滤在应用层处理
+    }
+    
     // 执行向量搜索
-    // search方法接受查询向量，返回相似度最高的记录
-    const results = await schemaTable
-      .search(queryVector)
-      .limit(topK)
-      .execute();
+    const results = await searchQuery.limit(topK * 2).execute(); // 搜索更多用于后过滤
     
     // 解析结果
-    const parsedResults = results.map(row => ({
-      // 文本内容
+    let parsedResults = results.map(row => ({
       text: row.text,
-      // 向量距离（越小越相似）
       distance: row._distance,
-      // 解析元数据
       metadata: JSON.parse(row.metadata || '{}')
     }));
     
-    // 记录统计（非阻塞，失败不影响主流程）
+    // 【新增】应用过滤条件（应用层过滤作为临时方案）
+    if (filters.scope) {
+      parsedResults = parsedResults.filter(r => r.metadata.scope === filters.scope);
+    }
+    if (filters.data_type) {
+      parsedResults = parsedResults.filter(r => r.metadata.data_type === filters.data_type);
+    }
+    if (filters.exclude_data_type) {
+      parsedResults = parsedResults.filter(r => r.metadata.data_type !== filters.exclude_data_type);
+    }
+    
+    // 限制返回数量
+    parsedResults = parsedResults.slice(0, topK);
+    
+    // 记录统计
     evaluation.recordVectorSearch('schema', parsedResults);
     
     return parsedResults;
@@ -407,6 +431,107 @@ async function searchSchema(queryVector, topK = 5) {
   } catch (error) {
     logger.error('搜索Schema向量失败:', error);
     return [];
+  }
+}
+
+/**
+ * 【新增】智能搜索Schema向量（带查询意图识别）
+ * 
+ * 根据查询文本自动识别意图，应用相应的过滤策略：
+ * - 未提及具体游戏时，优先返回 platform 表
+ * - 提及游戏时，返回对应游戏表 + platform 表
+ * - 降低 aggregated_report 类型表的排名
+ * 
+ * @param {Array<number>} queryVector - 查询向量
+ * @param {string} queryText - 原始查询文本（用于意图识别）
+ * @param {number} topK - 返回结果数量
+ * @returns {Promise<Array>} 搜索结果
+ */
+async function searchSchemaSmart(queryVector, queryText, topK = 5) {
+  // 检查是否初始化
+  if (!initialized || !schemaTable) {
+    logger.warn('向量数据库未初始化，返回空结果');
+    return [];
+  }
+  
+  try {
+    // 1. 意图识别：检测是否提到具体游戏
+    const gameKeywords = ['青木', '无限', '星火', '幻灵', 'tzqingmu', 'tzwuxian', 'tzxinghuo'];
+    const mentionedGame = gameKeywords.find(game => queryText.toLowerCase().includes(game.toLowerCase()));
+    
+    // 2. 执行向量搜索（获取更多结果用于重排序）
+    const results = await schemaTable
+      .search(queryVector)
+      .limit(topK * 3)
+      .execute();
+    
+    // 3. 解析结果
+    let parsedResults = results.map(row => ({
+      text: row.text,
+      distance: row._distance,
+      metadata: JSON.parse(row.metadata || '{}')
+    }));
+    
+    // 4. 智能重排序
+    parsedResults = parsedResults.map(result => {
+      let priorityScore = 0;
+      const metadata = result.metadata;
+      
+      // 策略1：如果提到了具体游戏，该游戏表优先级最高
+      if (mentionedGame) {
+        const gameName = mentionedGame.replace('tz', '');
+        if (metadata.scope && metadata.scope.includes(gameName)) {
+          priorityScore += 100;
+        }
+      }
+      
+      // 策略2：平台通用表优先级次高（当未提及游戏时）
+      if (!mentionedGame && metadata.scope === 'platform') {
+        priorityScore += 50;
+      }
+      
+      // 策略3：原始日志表优先级高于聚合报表
+      if (metadata.data_type === 'raw_log') {
+        priorityScore += 30;
+      } else if (metadata.data_type === 'aggregated_report') {
+        priorityScore -= 20; // 降低报表优先级
+      }
+      
+      // 策略4：向量距离越小越好（归一化到 0-20 分）
+      const distanceScore = Math.max(0, (1 - result.distance) * 20);
+      priorityScore += distanceScore;
+      
+      return {
+        ...result,
+        priorityScore: priorityScore
+      };
+    });
+    
+    // 5. 按优先级分数排序
+    parsedResults.sort((a, b) => b.priorityScore - a.priorityScore);
+    
+    // 6. 限制返回数量
+    const finalResults = parsedResults.slice(0, topK);
+    
+    logger.debug('[VectorStore] 智能搜索结果', {
+      query: queryText.substring(0, 50),
+      mentionedGame: mentionedGame || 'none',
+      topResults: finalResults.map(r => ({
+        name: r.metadata.name,
+        scope: r.metadata.scope,
+        score: r.priorityScore.toFixed(2)
+      }))
+    });
+    
+    // 7. 记录统计
+    evaluation.recordVectorSearch('schema', finalResults);
+    
+    return finalResults;
+    
+  } catch (error) {
+    logger.error('智能搜索Schema向量失败:', error);
+    // 失败时回退到普通搜索
+    return searchSchema(queryVector, topK);
   }
 }
 
@@ -616,6 +741,7 @@ module.exports = {
   // Schema操作
   addSchemaVectors,
   searchSchema,
+  searchSchemaSmart,  // 【新增】智能搜索
   hasSchemaVectors,
   clearSchemaVectors,
   // 查询历史操作

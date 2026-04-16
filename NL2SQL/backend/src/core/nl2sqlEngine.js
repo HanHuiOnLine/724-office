@@ -381,8 +381,7 @@ async function resolveEntitiesInIntent(intent, userQuery, userId) {
     // 2. 从长期记忆加载用户学习的字段别名
     if (userId) {
       try {
-        const userPrefs = await longTermMemory.getUserPreferences(userId);
-        const fieldAliases = userPrefs.filter(p => p.preference_type === 'field_alias');
+        const fieldAliases = await database.getFieldAliases(userId);
         
         // 查找是否有游戏名称的映射
         for (const alias of fieldAliases) {
@@ -538,8 +537,7 @@ async function resolvePlatformInIntent(intent, userQuery, userId) {
     // 1. 从长期记忆加载用户学习的datasource映射
     if (userId) {
       try {
-        const userPrefs = await longTermMemory.getUserPreferences(userId);
-        const fieldAliases = userPrefs.filter(p => p.preference_type === 'field_alias');
+        const fieldAliases = await database.getFieldAliases(userId);
         
         // 查找datasource类型的映射
         for (const alias of fieldAliases) {
@@ -780,33 +778,74 @@ ${userPreferences.patterns.slice(0, 3).map(p =>
 ).join('\n')}
 
 字段别名映射（用户说法 → 实际值）:
-${userPreferences.aliases.slice(0, 5).map(a => {
-  // 游戏类型映射（双记录格式：青木 -> game_id, 青木_value -> 30）
-  if (a.field_type === 'game') {
-    // 查找对应的值映射（青木_value -> 30）
-    const valueAlias = userPreferences.aliases.find(va => 
-      va.user_term === `${a.user_term}_value` && !isNaN(Number(va.schema_field))
-    );
-    if (valueAlias) {
-      return `- "${a.user_term}" 对应 game_id = ${valueAlias.schema_field}`;
+${(() => {
+  // 【优化】优先显示与当前查询相关的别名
+  const queryLower = userQuery.toLowerCase();
+  
+  // 1. 找出与当前查询相关的别名（查询中包含用户术语）
+  const relevantAliases = userPreferences.aliases.filter(a => 
+    queryLower.includes(a.user_term.toLowerCase())
+  );
+  
+  // 2. 找出游戏类型的别名（game_id 映射）
+  const gameAliases = userPreferences.aliases.filter(a => 
+    a.field_type === 'game' || a.field_type === 'game_value' ||
+    (!isNaN(Number(a.schema_field)) && a.schema_field.length <= 3)
+  );
+  
+  // 3. 合并并去重，优先显示相关别名
+  const prioritizedAliases = [...relevantAliases];
+  for (const alias of gameAliases) {
+    if (!prioritizedAliases.find(a => a.user_term === alias.user_term)) {
+      prioritizedAliases.push(alias);
     }
-    return `- "${a.user_term}" 对应 game_id（值未知）`;
   }
-  // 跳过值映射记录（已在上面处理）
-  if (a.field_type === 'game_value') {
-    return null;
-  }
-  // 数字型映射（直接存储ID值，如 华夏 -> 88）
-  const isGameMapping = !isNaN(Number(a.schema_field));
-  if (isGameMapping) {
-    return `- "${a.user_term}" 对应 game_id = ${a.schema_field}`;
-  }
-  // 数据源类型映射（如新平台 → new_tzpingtai）
-  if (a.field_type === 'datasource') {
-    return `- "${a.user_term}" 对应数据库标识: ${a.schema_field}`;
-  }
-  return `- "${a.user_term}" → ${a.schema_field}`;
-}).filter(Boolean).join('\n')}
+  
+  // 4. 如果还不够，补充其他别名
+  const remaining = userPreferences.aliases.filter(a => 
+    !prioritizedAliases.find(p => p.user_term === a.user_term)
+  );
+  const allAliases = [...prioritizedAliases, ...remaining].slice(0, 15); // 增加到15个
+  
+  return allAliases.map(a => {
+    // 【修复】游戏类型映射处理逻辑
+    // 支持两种格式：
+    // 1. 直接映射：青木 -> 30（schema_field 是数字）
+    // 2. 双记录格式：青木 -> game_id, 青木_value -> 30
+    
+    if (a.field_type === 'game') {
+      // 首先检查是否是直接映射（schema_field 是数字）
+      if (!isNaN(Number(a.schema_field))) {
+        return `- "${a.user_term}" 对应 game_id = ${a.schema_field}`;
+      }
+      
+      // 否则查找双记录格式的值映射（青木_value -> 30）
+      const valueAlias = userPreferences.aliases.find(va => 
+        va.user_term === `${a.user_term}_value` && !isNaN(Number(va.schema_field))
+      );
+      if (valueAlias) {
+        return `- "${a.user_term}" 对应 game_id = ${valueAlias.schema_field}`;
+      }
+      return `- "${a.user_term}" 对应 game_id（值未知）`;
+    }
+    
+    // 跳过值映射记录（双记录格式中的第二个记录）
+    if (a.field_type === 'game_value') {
+      return null;
+    }
+    
+    // 数字型映射（兜底处理，如 华夏 -> 88）
+    const isGameMapping = !isNaN(Number(a.schema_field)) && a.schema_field.length <= 3;
+    if (isGameMapping) {
+      return `- "${a.user_term}" 对应 game_id = ${a.schema_field}`;
+    }
+    // 数据源类型映射（如新平台 → new_tzpingtai）
+    if (a.field_type === 'datasource') {
+      return `- "${a.user_term}" 对应数据库标识: ${a.schema_field}`;
+    }
+    return `- "${a.user_term}" → ${a.schema_field}`;
+  }).filter(Boolean).join('\n');
+})()}
 
 重要：
 1. 当用户提到上述游戏名称时，必须在 filters 中使用对应的 game_id，不要虚构其他字段如 database_identifier。
@@ -816,6 +855,12 @@ ${userPreferences.aliases.slice(0, 5).map(a => {
 常用指标: ${userPreferences.metrics.slice(0, 5).join(', ')}
 常用维度: ${userPreferences.dimensions.slice(0, 5).join(', ')}
 `;
+        
+        // 【调试】记录完整的用户偏好摘要
+        logger.debug('[NL2SQL] 用户偏好摘要内容', {
+          userId,
+          preferencesSummary: userPreferencesSummary
+        });
       }
       
       logger.info('[NL2SQL] ✅ 长期记忆已加载到意图识别', { 
@@ -823,7 +868,13 @@ ${userPreferences.aliases.slice(0, 5).map(a => {
         patternCount: userPreferences.patterns.length,
         aliasCount: userPreferences.aliases.length,
         metricCount: userPreferences.metrics.length,
-        dimensionCount: userPreferences.dimensions.length
+        dimensionCount: userPreferences.dimensions.length,
+        // 【调试】显示所有别名内容
+        allAliases: userPreferences.aliases.map(a => ({
+          user_term: a.user_term,
+          schema_field: a.schema_field,
+          field_type: a.field_type
+        }))
       });
     } catch (err) {
       logger.error('[NL2SQL] ❌ 加载用户长期记忆失败:', err);
@@ -1446,8 +1497,7 @@ async function generateSQL(intent, history = [], userId = null) {
   let fieldAliasesInfo = '';
   if (userId) {
     try {
-      const userPrefs = await longTermMemory.getUserPreferences(userId);
-      const fieldAliases = userPrefs.filter(p => p.preference_type === 'field_alias');
+      const fieldAliases = await database.getFieldAliases(userId);
       
       if (fieldAliases.length > 0) {
         fieldAliasesInfo = '\n用户定义的字段别名（重要，必须遵守）:\n';
