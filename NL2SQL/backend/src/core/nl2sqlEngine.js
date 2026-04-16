@@ -120,6 +120,63 @@ function inferTablesFromQuery(query) {
 }
 
 /**
+ * 【优化】动态获取与查询相关的表名列表（意图识别阶段）
+ * 使用向量检索或关键词匹配，返回与查询最相关的表名
+ * 替代固定取前30个表的做法，提升精准度并减少Token消耗
+ * 
+ * @param {string} query - 用户查询
+ * @param {Object} context - 上下文信息（可选）
+ * @param {number} topK - 返回表数量（默认10）
+ * @returns {Promise<string>} 表名列表字符串，格式：表名(中文名), ...
+ */
+async function getRelevantTablesForIntent(query, context = {}, topK = 10) {
+  try {
+    // 优先使用向量检索获取相关表
+    const relevantTables = await schemaLoader.searchRelevantTables(query, topK, context);
+    
+    if (relevantTables && relevantTables.length > 0) {
+      logger.debug('[NL2SQL] 使用向量检索获取相关表', {
+        query: query.substring(0, 50),
+        tableCount: relevantTables.length,
+        tables: relevantTables.map(t => t.name)
+      });
+      return relevantTables.map(t => `${t.name}(${t.name_cn || ''})`).join(', ');
+    }
+  } catch (error) {
+    logger.warn('[NL2SQL] 向量检索表失败，回退到高频核心表:', error.message);
+  }
+  
+  // 回退策略：使用高频核心表（覆盖80%的查询场景）
+  return getCoreHighFrequencyTables().join(', ');
+}
+
+/**
+ * 获取高频核心表列表（作为向量检索失败的回退）
+ * 这些表覆盖大部分常见查询场景
+ * @returns {Array<string>} 表名列表
+ */
+function getCoreHighFrequencyTables() {
+  // 核心高频表列表（按使用频率排序）
+  const coreTables = [
+    'tzpingtai_tz_sdk_log_pf_reg(平台注册表)',
+    'tzpingtai_tz_sdk_log_pf_login(平台登录表)',
+    'tzpingtai_tz_sdk_log_pf_order(平台订单表)',
+    'tzpingtai_tz_sdk_log_pf_act(平台活跃表)',
+    'tzpingtai_tz_sdk_log_pf_first_order(平台首充日志表)',
+    'new_tzpingtaiold.tzpingtaiold_tz_sdk_log_account_game_time(账号游戏时间)',
+    'new_tzpingtaiold.tzpingtaiold_tz_sdk_log_role_game_time(角色游戏时间)',
+    'tzqingmu_log_game_user_chat(游戏用户聊天表)',
+    'tzqingmu_role(角色表)',
+    'dwd_tzpingtai_game_reg(DWD注册表)',
+    'dwd_tzpingtai_act(DWD活跃表)',
+    'dwd_tzpingtai_order(DWD订单表)',
+    'dwd_tzpingtai_retention(DWD留存表)'
+  ];
+  
+  return coreTables;
+}
+
+/**
  * 生成Schema映射提示
  * 根据表名列表生成业务术语到表/字段的映射提示
  * 
@@ -830,11 +887,9 @@ async function analyzeIntent(userQuery, history = [], userId = null) {
   // 记录开始分析日志
   logger.debug('开始分析用户意图', { query: userQuery, historyLength: history.length, userId });
   
-  // 【优化】意图识别阶段只需要核心表名列表，不需要完整Schema详情
-  // 这可以将Prompt从5万+字符降低到约1千字符，显著减少Token消耗和延迟
-  const allTables = schemaLoader.getAllTables();
-  const coreTables = allTables.slice(0, 30);
-  const tableList = coreTables.map(t => `${t.name}(${t.name_cn || ''})`).join(', ');
+  // 【优化】使用向量检索动态获取与查询相关的表名，替代固定取前30个表
+  // 这比固定截取更精准，能根据查询语义返回最相关的表，进一步减少Token消耗
+  const tableList = await getRelevantTablesForIntent(userQuery, {}, 10);
   
   // 构建对话上下文摘要
   let contextSummary = '';
@@ -1232,12 +1287,16 @@ async function updateIntentWithLLM(previousIntent, newQuery, history) {
     newQuery 
   });
 
-  // 【优化】意图识别阶段只需要核心表名列表，不需要完整Schema详情
-  // 这可以将Prompt从5万+字符降低到约1千字符，显著减少Token消耗和延迟
-  const allTables = schemaLoader.getAllTables();
-  // 只取前30个核心表（通常覆盖80%的查询场景），避免Prompt过长
-  const coreTables = allTables.slice(0, 30);
-  const tableList = coreTables.map(t => `${t.name}(${t.name_cn || ''})`).join(', ');
+  // 【优化】使用向量检索动态获取与查询相关的表名，替代固定取前30个表
+  // 结合历史意图中的上下文（如game_id/datasource）进行更精准的表检索
+  const context = {};
+  if (previousIntent.filters) {
+    const gameIdFilter = previousIntent.filters.find(f => f.field === 'game_id');
+    if (gameIdFilter) context.gameId = gameIdFilter.value;
+    const dsFilter = previousIntent.filters.find(f => f.field === 'datasource');
+    if (dsFilter) context.datasource = dsFilter.value;
+  }
+  const tableList = await getRelevantTablesForIntent(newQuery, context, 10);
   
   const dialogueSummary = getDialogueSummary(history, 6);
 
@@ -1751,6 +1810,18 @@ SQL生成规则:
 - intent.filters 数组中包含了已解析的筛选条件，格式为 [{"field": "game_id", "op": "=", "value": "30"}]
 - 这些 filters 是系统已经解析好的精确条件，必须在生成的SQL的WHERE子句中使用
 - 例如：如果 filters 中有 {"field": "game_id", "op": "=", "value": "30"}，则SQL必须包含 WHERE game_id = 30
+
+## 复杂逻辑处理指南（通用）
+1. **活跃行为交叉过滤**：
+   - 若需求为“A时间段活跃但B时间段不活跃”，统一使用 "EXISTS" 与 "NOT EXISTS" 结构，以确保主表数据不因 JOIN 而收缩。
+2. **多行明细合并**：
+   - 提取“最近 N 次发言/操作”时，SQL 示例参考：
+     "GROUP_CONCAT(msg ORDER BY create_time DESC)" 并在外部通过子查询截取，或使用 "ROW_NUMBER() OVER(PARTITION BY ...)"。
+3. **金字塔筛选原则**：
+   - 第一层：通过注册表/游戏 ID 圈定基础人群（WHERE）。
+   - 第二层：通过聚合表（订单表）进行度量过滤（HAVING 或 子查询）。
+   - 第三层：通过行为表（登录表/聊天表）进行行为判定。
+
 
 ## Few-Shot 示例
 
