@@ -1032,6 +1032,106 @@ function getBusinessKeywordMappings() {
 }
 
 // ============================================
+// 【Phase 1 新增】分层Schema加载接口
+// ============================================
+
+/**
+ * 获取Level 1索引（极简版）
+ * 仅包含表名+业务注释，用于初步筛选
+ * 
+ * @returns {Array} Level 1索引数组
+ */
+function getLevel1Index() {
+  return schemaData.tables.map(table => ({
+    name: table.name,
+    name_cn: table.name_cn || '',
+    description: (table.description || '').substring(0, 100),
+    field_count: table.fields?.length || 0
+  }));
+}
+
+/**
+ * 获取Level 2详情（按需加载）
+ * 根据表名数组获取详细的Schema信息
+ * 
+ * @param {Array<string>} tableNames - 表名数组
+ * @param {Object} options - 选项
+ * @param {boolean} options.compact - 是否使用精简版
+ * @returns {string} Schema详情文本
+ */
+function getLevel2Detail(tableNames, options = {}) {
+  const { compact = true } = options;
+  
+  if (!tableNames || tableNames.length === 0) {
+    return '';
+  }
+  
+  // 过滤掉不存在的表
+  const validTableNames = tableNames.filter(name => schemaData.tableMap.has(name));
+  
+  if (compact) {
+    return getTableSchemaDetailCompact(validTableNames);
+  } else {
+    return getTableSchemaDetail(validTableNames);
+  }
+}
+
+/**
+ * 构建工具增强型Prompt（Level 1索引）
+ * 用于替代原有的全量Schema Prompt
+ * 
+ * @param {string} userQuery - 用户查询
+ * @returns {string} 工具增强型Prompt
+ */
+function buildToolAugmentedPrompt(userQuery) {
+  const level1Index = getLevel1Index();
+  
+  // 格式化为简洁的表列表
+  const tableList = level1Index.map(t => 
+    `- ${t.name} (${t.name_cn}): ${t.description}`
+  ).join('\n');
+  
+  return `你是一位数据分析专家，负责将自然语言查询转换为SQL。
+
+## 可用表列表（Level 1索引）
+以下是数据库中所有可用的表，仅包含表名和简要描述：
+
+${tableList}
+
+## 工作方式
+1. 首先分析用户查询，确定需要哪些表
+2. 如果不确定某个表的结构，可以使用工具获取详情
+3. 确认所有需要的表后，生成SQL
+
+## 当前查询
+"${userQuery}"
+
+请先思考需要哪些表，然后决定是否需要获取表的详细信息。`;
+}
+
+/**
+ * 检查表是否存在
+ * 
+ * @param {string} tableName - 表名
+ * @returns {boolean} 是否存在
+ */
+function tableExists(tableName) {
+  return schemaData.tableMap.has(tableName);
+}
+
+/**
+ * 批量获取表定义
+ * 
+ * @param {Array<string>} tableNames - 表名数组
+ * @returns {Array} 表定义数组
+ */
+function getTables(tableNames) {
+  return tableNames
+    .map(name => schemaData.tableMap.get(name))
+    .filter(Boolean);
+}
+
+// ============================================
 // 导出模块
 // ============================================
 
@@ -1061,5 +1161,11 @@ module.exports = {
   // 业务关键词映射
   getBusinessKeywordMappings,
   // 缓存检查
-  isCacheExpired
+  isCacheExpired,
+  // 【Phase 1 新增】分层Schema加载
+  getLevel1Index,
+  getLevel2Detail,
+  buildToolAugmentedPrompt,
+  tableExists,
+  getTables
 };

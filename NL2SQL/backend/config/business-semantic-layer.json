@@ -1,0 +1,188 @@
+{
+  "version": "1.0.0",
+  "description": "NL2SQL业务语义层配置 - 将业务概念映射到物理表/字段",
+  
+  "concepts": {
+    "老平台": {
+      "aliases": ["旧平台", "老版本", "旧版本", "老系统"],
+      "description": "指平台标识为 old 的数据，对应 new_tzpingtaiold 数据库",
+      "mappings": {
+        "datasource": "new_tzpingtaiold",
+        "platform_field": "platform_type",
+        "platform_value": ["1", "2", "old"]
+      },
+      "priority": 1,
+      "examples": ["老平台注册用户", "老平台充值数据"]
+    },
+    "新平台": {
+      "aliases": ["tzpingtai", "新系统", "新版本"],
+      "description": "指平台标识为 new 的数据，对应 new_tzpingtai 数据库",
+      "mappings": {
+        "datasource": "new_tzpingtai",
+        "platform_field": "platform_type",
+        "platform_value": ["0", "new"]
+      },
+      "priority": 1,
+      "examples": ["新平台注册用户", "新平台充值数据"]
+    },
+    "累计充值": {
+      "aliases": ["累计付费", "总充值", "总付费", "累计金额"],
+      "description": "玩家累计充值金额，使用订单表聚合计算",
+      "mappings": {
+        "primary_table": "tzpingtai_tz_sdk_log_pf_order",
+        "aggregation": "SUM(real_amount)",
+        "field": "real_amount"
+      },
+      "priority": 1,
+      "examples": ["累计充值超过1000的用户", "查询玩家累计充值金额"]
+    },
+    "充值": {
+      "aliases": ["付费", "订单", "流水", "payment", "pay"],
+      "description": "玩家充值付费行为记录",
+      "mappings": {
+        "primary_table": "tzpingtai_tz_sdk_log_pf_order",
+        "key_fields": ["tz_account_id", "game_id", "real_amount", "create_time", "order_id"]
+      },
+      "priority": 2,
+      "examples": ["昨天充值的用户", "充值订单明细"]
+    },
+    "注册": {
+      "aliases": ["新增", "首入", "signup", "register", "新用户"],
+      "description": "用户在平台的注册行为",
+      "mappings": {
+        "primary_table": "tzpingtai_tz_sdk_log_pf_reg",
+        "key_fields": ["create_time", "tz_account_id", "game_id", "channel_id"]
+      },
+      "priority": 1,
+      "examples": ["最近7天注册用户", "注册来源渠道"]
+    },
+    "登录": {
+      "aliases": ["活跃", "在线", "login", "active", "dau"],
+      "description": "用户登录行为记录",
+      "mappings": {
+        "platform_table": "tzpingtai_tz_sdk_log_pf_login",
+        "game_table": "tzpingtai_tz_sdk_log_game_act",
+        "key_fields": ["tz_account_id", "game_id", "login_time", "create_time"]
+      },
+      "priority": 1,
+      "examples": ["昨日登录用户", "登录次数统计"]
+    },
+    "聊天": {
+      "aliases": ["发言", "消息", "chat", "message"],
+      "description": "玩家游戏内聊天发言记录",
+      "mappings": {
+        "primary_table": "tzqingmu_log_game_user_chat",
+        "key_fields": ["role_id", "content", "create_time", "game_id"]
+      },
+      "priority": 2,
+      "examples": ["最近发言内容", "聊天记录查询"]
+    },
+    "创角": {
+      "aliases": ["创建角色", "新建角色", "create_role", "新角色"],
+      "description": "玩家创建游戏角色",
+      "mappings": {
+        "primary_table": "tzqingmu_role",
+        "key_fields": ["role_id", "role_name", "create_time", "game_id"]
+      },
+      "priority": 2,
+      "examples": ["今日创角数量", "角色创建时间"]
+    },
+    "首充": {
+      "aliases": ["首单", "首次付费", "首次充值", "first_order"],
+      "description": "玩家首次充值行为",
+      "mappings": {
+        "primary_table": "tzpingtai_tz_sdk_log_pf_order",
+        "filter_condition": "is_first_order = 1",
+        "key_fields": ["tz_account_id", "game_id", "real_amount", "create_time"]
+      },
+      "priority": 2,
+      "examples": ["首充用户数", "首充金额分布"]
+    },
+    "留存": {
+      "aliases": ["留存率", "retention", "回归"],
+      "description": "用户留存相关指标",
+      "mappings": {
+        "primary_table": "tzpingtai_tz_sdk_log_pf_login",
+        "calculation": "需要配合注册表计算留存率"
+      },
+      "priority": 3,
+      "examples": ["次日留存率", "7日留存率"]
+    },
+    "等级": {
+      "aliases": ["level", "升级", "角色等级"],
+      "description": "玩家角色等级信息",
+      "mappings": {
+        "primary_table": "tzqingmu_role",
+        "key_fields": ["role_id", "level", "exp"]
+      },
+      "priority": 3,
+      "examples": ["等级分布", "高等级玩家"]
+    }
+  },
+  
+  "query_patterns": {
+    "玩家筛选+行为分析": {
+      "description": "筛选符合条件的玩家并分析其行为",
+      "required_concepts": ["注册"],
+      "optional_concepts": ["登录", "充值", "聊天", "创角"],
+      "typical_tables": ["pf_reg", "pf_login", "pf_order", "game_user_chat"],
+      "join_keys": ["tz_account_id", "role_id", "game_id"],
+      "example": "查询最近7天注册且累计充值超过1000的玩家"
+    },
+    "时间序列分析": {
+      "description": "按时间维度分析用户行为趋势",
+      "required_concepts": ["登录"],
+      "optional_concepts": ["充值", "注册"],
+      "typical_tables": ["pf_login", "pf_order", "pf_reg"],
+      "join_keys": ["create_time", "game_id"],
+      "example": "最近30天每日活跃用户数"
+    },
+    "充值分析": {
+      "description": "分析充值相关指标",
+      "required_concepts": ["充值"],
+      "optional_concepts": ["首充", "累计充值"],
+      "typical_tables": ["pf_order", "pf_order_summary"],
+      "join_keys": ["tz_account_id", "game_id"],
+      "example": "本月充值总额和充值人数"
+    }
+  },
+  
+  "field_mappings": {
+    "game_id": {
+      "description": "游戏ID",
+      "common_values": {
+        "青木": "30",
+        "华夏": "88",
+        "游戏67": "67",
+        "游戏8": "8",
+        "游戏9": "9",
+        "游戏66": "66"
+      }
+    },
+    "platform_type": {
+      "description": "平台类型",
+      "common_values": {
+        "老平台": "1,2,old",
+        "新平台": "0,new"
+      }
+    }
+  },
+  
+  "datasource_mappings": {
+    "new_tzpingtaiold": {
+      "description": "老平台数据库",
+      "concepts": ["老平台", "旧平台"],
+      "table_prefix": "new_tzpingtaiold_"
+    },
+    "new_tzpingtai": {
+      "description": "新平台数据库",
+      "concepts": ["新平台", "tzpingtai"],
+      "table_prefix": "new_tzpingtai_"
+    },
+    "new_tzqingmu": {
+      "description": "青木游戏数据库",
+      "concepts": ["青木", "游戏30"],
+      "table_prefix": "new_tzqingmu_"
+    }
+  }
+}

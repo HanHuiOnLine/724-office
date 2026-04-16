@@ -135,6 +135,28 @@ async function initialize() {
     logger.info('Schema元数据加载完成');
 
     // ----------------------------------------
+    // 步骤4.5：加载业务语义层（Phase 2新增）
+    // ----------------------------------------
+    // 加载业务概念到物理表的映射配置
+    try {
+      const semanticLayer = require('./core/semanticLayer');
+      semanticLayer.load();
+      logger.info('业务语义层加载完成');
+    } catch (e) {
+      logger.warn('业务语义层加载失败，将使用传统流程:', e.message);
+    }
+
+    // ----------------------------------------
+    // 步骤4.6：打印功能开关状态
+    // ----------------------------------------
+    try {
+      const featureFlags = require('../config/feature-flags');
+      featureFlags.logFeatureFlags();
+    } catch (e) {
+      // 功能开关配置加载失败，使用默认值
+    }
+
+    // ----------------------------------------
     // 步骤5：启动自修复调度器
     // ----------------------------------------
     // 启动定时任务，执行健康检查和维护

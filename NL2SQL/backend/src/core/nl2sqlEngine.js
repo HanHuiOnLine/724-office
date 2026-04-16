@@ -33,6 +33,31 @@ const longTermMemory = require('../memory/longTermMemory');
 const vectorStore = require('../memory/vectorStore');
 
 // ============================================
+// 【Phase 1-4 新增模块】Agentic工作流相关
+// ============================================
+// 导入语义层模块（Phase 2）
+let semanticLayer = null;
+try {
+  semanticLayer = require('./semanticLayer');
+  logger.debug('[NL2SQL] 语义层模块加载成功');
+} catch (e) {
+  logger.warn('[NL2SQL] 语义层模块加载失败，将使用传统流程');
+}
+
+// 导入功能开关配置
+let featureFlags = null;
+try {
+  featureFlags = require('../../config/feature-flags');
+} catch (e) {
+  // 使用默认配置
+  featureFlags = {
+    isEnabled: () => false,
+    shouldUseAgenticWorkflow: () => false,
+    shouldUseLayeredSchema: () => false
+  };
+}
+
+// ============================================
 // 业务关键词到表的映射（用于智能表检索）
 // ============================================
 
@@ -1497,6 +1522,47 @@ async function generateSQL(intent, history = [], userId = null) {
     }
   }
   
+  // ============================================
+  // 【Phase 2 新增】使用语义层匹配业务概念
+  // ============================================
+  let semanticLayerTables = [];
+  let semanticLayerInfo = '';
+  
+  if (semanticLayer && featureFlags.isEnabled('BUSINESS_SEMANTIC_LAYER')) {
+    try {
+      // 匹配查询中的业务概念
+      const matchedConcepts = semanticLayer.matchConcepts(intent.original_query || '');
+      
+      // 基于概念推荐表
+      const tableRecommendation = semanticLayer.recommendTables(matchedConcepts);
+      semanticLayerTables = tableRecommendation.tables.map(t => t.tableName);
+      
+      // 生成语义层提示信息
+      if (matchedConcepts.length > 0) {
+        semanticLayerInfo = '\n## 业务语义映射（重要）\n';
+        for (const concept of matchedConcepts) {
+          const mappings = concept.config?.mappings || {};
+          if (mappings.datasource) {
+            semanticLayerInfo += `- "${concept.name}" 对应数据库标识: ${mappings.datasource}\n`;
+          }
+          if (mappings.primary_table) {
+            semanticLayerInfo += `- "${concept.name}" 推荐使用表: ${mappings.primary_table}\n`;
+          }
+          if (mappings.field) {
+            semanticLayerInfo += `- "${concept.name}" 对应字段: ${mappings.field}\n`;
+          }
+        }
+        
+        logger.info('[SQL生成] 语义层匹配结果', {
+          matchedConcepts: matchedConcepts.map(c => c.name),
+          recommendedTables: semanticLayerTables
+        });
+      }
+    } catch (e) {
+      logger.warn('[SQL生成] 语义层处理失败:', e);
+    }
+  }
+  
   // 搜索相关表（传入上下文进行智能匹配）
   // 【优化】限制返回表数量为3，减少Schema负载和Token消耗
   const relevantTables = await schemaLoader.searchRelevantTables(
@@ -1507,9 +1573,12 @@ async function generateSQL(intent, history = [], userId = null) {
   
   // 【修复】根据业务关键词推断可能需要的表，并合并到相关表列表中
   const inferredTables = inferTablesFromQuery(intent.original_query);
+  
+  // 【Phase 2 新增】合并语义层推荐的表
   const allTableNames = new Set([
     ...relevantTables.map(t => t.name),
-    ...inferredTables
+    ...inferredTables,
+    ...semanticLayerTables  // 添加语义层推荐的表
   ]);
   
   // 获取相关表的详细Schema（包含推断的表）
@@ -1623,7 +1692,7 @@ async function generateSQL(intent, history = [], userId = null) {
 
 可用表结构:
 ${schemaDetail}
-${schemaMappingHints}
+${schemaMappingHints}${semanticLayerInfo}
 预定义指标:
 ${metricsInfo}${clarifiedInfo}${fieldAliasesInfo}
 
