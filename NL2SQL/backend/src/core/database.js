@@ -338,6 +338,15 @@ async function runMigrations() {
     }
     
     logger.info('数据库迁移完成');
+    
+    // 清理重复的字段别名记录（在应用启动时执行一次）
+    try {
+      await cleanupDuplicateFieldAliases();
+    } catch (cleanupErr) {
+      logger.error('启动时清理重复字段别名失败:', cleanupErr);
+      // 清理失败不影响启动
+    }
+    
   } catch (error) {
     logger.error('数据库迁移失败:', error);
     throw error;
@@ -820,6 +829,96 @@ async function close() {
   });
 }
 
+/**
+ * 清理重复的字段别名记录
+ * 保留使用次数最多、更新时间最新的记录，删除其他重复项
+ * @returns {Promise<Object>} 清理统计
+ */
+async function cleanupDuplicateFieldAliases() {
+  try {
+    logger.info('开始清理重复的字段别名记录...');
+    
+    // 1. 查找所有重复的字段别名（按 user_id + user_term 分组）
+    const duplicates = await query(`
+      SELECT user_id, json_extract(content, '$.user_term') as user_term, COUNT(*) as count
+      FROM user_preferences
+      WHERE preference_type = 'field_alias'
+      GROUP BY user_id, json_extract(content, '$.user_term')
+      HAVING count > 1
+    `);
+    
+    let totalRemoved = 0;
+    let totalGroups = 0;
+    
+    for (const dup of duplicates) {
+      const { user_id, user_term, count } = dup;
+      totalGroups++;
+      
+      // 获取该组所有记录，按使用次数降序、更新时间降序排列
+      const records = await query(`
+        SELECT id, usage_count, last_used_at, json_extract(content, '$.schema_field') as schema_field
+        FROM user_preferences
+        WHERE user_id = ? 
+          AND preference_type = 'field_alias'
+          AND json_extract(content, '$.user_term') = ?
+        ORDER BY usage_count DESC, last_used_at DESC, id ASC
+      `, [user_id, user_term]);
+      
+      if (records.length <= 1) continue;
+      
+      // 按 schema_field 分组，保留每组最新的记录
+      const schemaFieldGroups = {};
+      for (const record of records) {
+        const sf = record.schema_field || 'unknown';
+        if (!schemaFieldGroups[sf]) {
+          schemaFieldGroups[sf] = [];
+        }
+        schemaFieldGroups[sf].push(record);
+      }
+      
+      // 对每个 schema_field 分组，保留第一条（使用次数最多、最新的），删除其余
+      const idsToDelete = [];
+      for (const [schemaField, groupRecords] of Object.entries(schemaFieldGroups)) {
+        // 保留第一条，删除其余的
+        for (let i = 1; i < groupRecords.length; i++) {
+          idsToDelete.push(groupRecords[i].id);
+        }
+      }
+      
+      if (idsToDelete.length > 0) {
+        // 批量删除重复记录
+        const placeholders = idsToDelete.map(() => '?').join(',');
+        const result = await run(`
+          DELETE FROM user_preferences 
+          WHERE id IN (${placeholders})
+        `, idsToDelete);
+        
+        totalRemoved += result.changes;
+        logger.info('清理重复字段别名', {
+          userId: user_id,
+          userTerm,
+          removedCount: result.changes,
+          keptId: records[0].id
+        });
+      }
+    }
+    
+    logger.info('重复字段别名清理完成', {
+      duplicateGroups: totalGroups,
+      totalRemoved
+    });
+    
+    return {
+      duplicateGroups: totalGroups,
+      totalRemoved
+    };
+    
+  } catch (error) {
+    logger.error('清理重复字段别名失败:', error);
+    return { duplicateGroups: 0, totalRemoved: 0, error: error.message };
+  }
+}
+
 // ============================================
 // 导出模块
 // ============================================
@@ -853,6 +952,7 @@ module.exports = {
   findExistingPreference,
   deleteUserPreference,
   getRecentPatternCount,
+  cleanupDuplicateFieldAliases,
   // 关闭连接
   close
 };

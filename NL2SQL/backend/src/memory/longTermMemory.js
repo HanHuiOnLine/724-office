@@ -766,7 +766,7 @@ async function learnFieldAlias(userId, userTerm, schemaField, fieldType = 'metri
       return null;
     }
     
-    // 检查是否已存在
+    // 检查是否已存在（使用更强的去重逻辑）
     const existing = await database.findExistingPreference(
       userId,
       PREFERENCE_TYPES.FIELD_ALIAS,
@@ -776,7 +776,14 @@ async function learnFieldAlias(userId, userTerm, schemaField, fieldType = 'metri
     if (existing) {
       // 验证映射是否一致
       if (existing.content.schema_field === schemaField) {
+        // 映射一致，更新使用次数
         await database.updatePreferenceUsage(existing.id);
+        logger.debug('字段别名已存在，更新使用次数', { 
+          userId, 
+          userTerm, 
+          schemaField,
+          usageCount: existing.content.usage_count 
+        });
         return { ...existing, action: 'updated' };
       } else {
         // 映射冲突，记录警告
@@ -786,7 +793,26 @@ async function learnFieldAlias(userId, userTerm, schemaField, fieldType = 'metri
           existing: existing.content.schema_field,
           new: schemaField
         });
+        // 冲突时不创建新记录，返回已有记录
+        return { ...existing, action: 'conflict' };
       }
+    }
+    
+    // 二次检查：确保没有重复记录（处理可能的并发或历史数据问题）
+    const allAliases = await database.getUserPreferences(userId, PREFERENCE_TYPES.FIELD_ALIAS);
+    const duplicate = allAliases.find(alias => 
+      alias.content?.user_term === userTerm && 
+      alias.content?.schema_field === schemaField
+    );
+    
+    if (duplicate) {
+      logger.warn('发现重复字段别名记录，更新使用次数', { 
+        userId, 
+        userTerm, 
+        existingId: duplicate.id 
+      });
+      await database.updatePreferenceUsage(duplicate.id);
+      return { ...duplicate, action: 'updated' };
     }
     
     const content = {

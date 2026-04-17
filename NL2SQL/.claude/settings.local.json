@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /b \"F:\\\\learn\\\\724-office\\\\NL2SQL\")",
+      "Bash(wc *)",
+      "Bash(find . -type f -name \"*.js\" -exec grep -l \"longTermMemory\\\\|memoryQueue\\\\|summarizer\" {} \\\\;)",
+      "Bash(find /f/learn/724-office/NL2SQL/backend/src -type f -name \"*.js\" -exec wc -l {} +)",
+      "Bash(grep -E \"\\\\.js$\")",
+      "Bash(grep -h \"^const.*require\\\\|^let.*require\" \"F:\\\\learn\\\\724-office\\\\NL2SQL/backend/src/core\"/*.js)",
+      "Bash(grep *)",
+      "Bash(xxd)",
+      "Bash(node -e \"const s = require\\('./backend/config/schema-metadata.json'\\); console.log\\('Total tables:', s.tables.length\\); s.tables.forEach\\(t => console.log\\(' -', t.name, '\\(', t.name_cn || '', '\\)'\\)\\);\")"
+    ]
+  }
+}
