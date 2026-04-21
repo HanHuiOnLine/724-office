@@ -1712,17 +1712,44 @@ async function generateSQL(intent, history = [], userId = null) {
     clarifiedInfo += `\n本轮用户确认采用上一轮默认选项:\n- ${intent.clarification_context.confirmedDefaults.join('\n- ')}`;
   }
   
-  // 从长期记忆加载用户学习的字段别名
+  // 从长期记忆加载用户学习的字段别名（相关性过滤，上限 20 条）
   let fieldAliasesInfo = '';
   if (userId) {
     try {
-      const fieldAliases = await database.getFieldAliases(userId);
-      
-      if (fieldAliases.length > 0) {
+      const allAliases = await database.getFieldAliases(userId);
+
+      if (allAliases.length > 0) {
+        // 相关性过滤：精确命中 → 意图关联 → 高频兜底
+        const queryLower = (intent.original_query || '').toLowerCase();
+
+        // 第 1 层：查询中直接提到的别名
+        const exactHits = allAliases.filter(a => {
+          const content = typeof a.content === 'string' ? JSON.parse(a.content) : a.content;
+          return queryLower.includes((content.user_term || '').toLowerCase());
+        });
+
+        // 第 2 层：与 intent.filters 中字段相关的别名
+        const intentFields = new Set(
+          (intent.filters || []).map(f => f.field)
+        );
+        const exactIds = new Set(exactHits.map(a => a.id));
+        const intentHits = allAliases.filter(a => {
+          if (exactIds.has(a.id)) return false;
+          const content = typeof a.content === 'string' ? JSON.parse(a.content) : a.content;
+          return intentFields.has(content.schema_field) || intentFields.has(content.field_type);
+        });
+
+        // 第 3 层：高频兜底（已按 usage_count DESC）
+        const usedIds = new Set([...exactHits, ...intentHits].map(a => a.id));
+        const highFreq = allAliases.filter(a => !usedIds.has(a.id)).slice(0, 5);
+
+        // 合并，总数上限 20 条
+        const relevantAliases = [...exactHits, ...intentHits, ...highFreq].slice(0, 20);
+
         fieldAliasesInfo = '\n用户定义的字段别名（重要，必须遵守）:\n';
-        for (const alias of fieldAliases) {
+        for (const alias of relevantAliases) {
           const content = typeof alias.content === 'string' ? JSON.parse(alias.content) : alias.content;
-          
+
           // 数据源类型映射（如新平台 → new_tzpingtai）
           if (content.field_type === 'datasource') {
             fieldAliasesInfo += `- 当用户说"${content.user_term}"时，指的是数据库标识: ${content.schema_field}，SQL中必须使用 FROM ${content.schema_field}.表名\n`;
@@ -1736,9 +1763,11 @@ async function generateSQL(intent, history = [], userId = null) {
             fieldAliasesInfo += `- 当用户说"${content.user_term}"时，指的是字段: ${content.schema_field}\n`;
           }
         }
-        logger.info('[SQL生成] 加载用户字段别名', { 
-          userId, 
-          aliasCount: fieldAliases.length 
+        logger.info('[SQL生成] 加载用户字段别名', {
+          userId,
+          totalAliases: allAliases.length,
+          relevantAliases: relevantAliases.length,
+          exactHits: exactHits.length
         });
       }
     } catch (e) {
@@ -2673,30 +2702,12 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
 /**
  * 解析LLM返回的JSON响应
  * 处理可能的格式问题
- * 
+ *
  * @param {string} response - LLM响应文本
  * @returns {Object} 解析后的JSON对象
  */
 function parseJSONResponse(response) {
-  try {
-    // 尝试直接解析
-    return JSON.parse(response);
-  } catch (e) {
-    // 如果失败，尝试提取JSON代码块
-    const jsonMatch = response.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[1]);
-    }
-    
-    // 尝试提取花括号内容
-    const braceMatch = response.match(/\{[\s\S]*\}/);
-    if (braceMatch) {
-      return JSON.parse(braceMatch[0]);
-    }
-    
-    // 都失败，抛出错误
-    throw new Error('无法解析JSON响应: ' + response.substring(0, 100));
-  }
+  return require('../utils/llmResponseParser').parseJSON(response, 'NL2SQLEngine');
 }
 
 // ============================================

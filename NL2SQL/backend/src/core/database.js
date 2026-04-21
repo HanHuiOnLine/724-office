@@ -346,6 +346,56 @@ async function runMigrations() {
       logger.error('启动时清理重复字段别名失败:', cleanupErr);
       // 清理失败不影响启动
     }
+
+    // 一次性迁移：清理重复的 metric/dimension 偏好 + 修正错误映射
+    try {
+      // 1. 清理重复的 metric_preference 和 dimension_preference
+      //    保留每个 (user_id, preference_type, field_name) 组合中 id 最小的记录
+      const dedupResult = await run(`
+        DELETE FROM user_preferences
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM user_preferences
+          WHERE preference_type IN ('metric_preference', 'dimension_preference')
+          GROUP BY user_id, preference_type, json_extract(content, '$.field_name')
+        )
+        AND preference_type IN ('metric_preference', 'dimension_preference')
+      `);
+      if (dedupResult.changes > 0) {
+        logger.info(`清理了 ${dedupResult.changes} 条重复的 metric/dimension 偏好记录`);
+      }
+
+      // 2. 修正"老平台"映射错误：应映射到 new_tzpingtaiold [datasource]
+      await run(`
+        UPDATE user_preferences SET content = json_set(content,
+          '$.schema_field', 'new_tzpingtaiold',
+          '$.field_type', 'datasource')
+        WHERE preference_type = 'field_alias'
+        AND json_extract(content, '$.user_term') = '老平台'
+        AND json_extract(content, '$.schema_field') = 'datasource'
+        AND json_extract(content, '$.field_type') = 'filter'
+      `);
+
+      // 3. 清理 _value 后缀冗余记录
+      const valueResult = await run(`
+        DELETE FROM user_preferences
+        WHERE preference_type = 'field_alias'
+        AND json_extract(content, '$.user_term') LIKE '%_value'
+      `);
+      if (valueResult.changes > 0) {
+        logger.info(`清理了 ${valueResult.changes} 条 _value 后缀冗余偏好记录`);
+      }
+
+      // 4. 清理"青木→game_id"冗余映射（已有"青木→30 [game]"）
+      await run(`
+        DELETE FROM user_preferences
+        WHERE preference_type = 'field_alias'
+        AND json_extract(content, '$.user_term') = '青木'
+        AND json_extract(content, '$.schema_field') = 'game_id'
+      `);
+    } catch (migrationErr) {
+      logger.error('启动时偏好数据迁移失败:', migrationErr);
+      // 迁移失败不影响启动
+    }
     
   } catch (error) {
     logger.error('数据库迁移失败:', error);
@@ -755,6 +805,13 @@ async function findExistingPreference(userId, type, contentKey) {
       SELECT * FROM user_preferences 
       WHERE user_id = ? AND preference_type = ?
       AND json_extract(content, "$.user_term") = ?
+    `;
+    params.push(contentKey);
+  } else if (type === 'metric_preference' || type === 'dimension_preference') {
+    sql = `
+      SELECT * FROM user_preferences
+      WHERE user_id = ? AND preference_type = ?
+      AND json_extract(content, "$.field_name") = ?
     `;
     params.push(contentKey);
   } else {

@@ -56,6 +56,12 @@ let schemaData = {
  */
 let cacheTimestamp = 0;
 
+/**
+ * 动态游戏名索引
+ * 从 schema-metadata.json 自动构建：中文游戏名 → { prefix, gameId }
+ */
+let gameNameIndex = new Map();
+
 // ============================================
 // Schema加载
 // ============================================
@@ -97,6 +103,9 @@ async function load() {
     
     // 构建快速查找映射
     buildMaps();
+
+    // 构建动态游戏名索引
+    buildGameNameIndex();
     
     // 更新缓存时间戳
     cacheTimestamp = Date.now();
@@ -600,21 +609,13 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
           .map(r => r.metadata.name)
       ])];
       
-      // 如果有datasource上下文，优先匹配对应数据库的表
+      // 如果有datasource上下文，硬过滤到对应数据库的表
+      // 保留不含 '.' 的核心平台表和 DWD 表（它们是跨库通用的）
       if (context?.datasource) {
-        const prioritized = [];
-        const others = [];
-        
-        for (const name of tableNames) {
-          if (name.startsWith(context.datasource)) {
-            prioritized.push(name);
-          } else {
-            others.push(name);
-          }
-        }
-        
-        // 优先返回匹配datasource的表
-        tableNames = [...prioritized, ...others];
+        tableNames = tableNames.filter(name =>
+          name.startsWith(context.datasource + '.') ||
+          !name.includes('.')  // 保留核心平台表（如 tzpingtai_*、dwd_*）
+        );
       }
       
       // 如果有gameId且推断为老平台，优先匹配new_tzpingtaiold的表
@@ -1135,6 +1136,66 @@ function getTables(tableNames) {
 // 导出模块
 // ============================================
 
+// ============================================
+// 动态游戏名索引
+// ============================================
+
+/**
+ * 从 schema-metadata.json 的表名和中文名中自动提取游戏名索引
+ * 生成映射：中文游戏名 → { prefix, gameId }
+ */
+function buildGameNameIndex() {
+  gameNameIndex = new Map();
+
+  for (const table of schemaData.tables) {
+    if (!table.name.startsWith('new_tz')) continue;
+    const dbMatch = table.name.match(/^new_(\w+?)\./);
+    if (!dbMatch) continue;
+
+    const prefix = dbMatch[1];
+    // 跳过平台/报表库
+    if (['tzpingtai', 'tzpingtaiold', 'tzpt', 'tzbigdata_dm', 'external_tables'].includes(prefix)) continue;
+
+    const nameCn = table.name_cn || table.description || '';
+
+    // 从 "星火游戏订单表（game_id=40）" 提取 "星火" 和 "40"
+    const gameNameMatch = nameCn.match(/^(.+?)游戏/);
+    const gameIdMatch = nameCn.match(/game_id[=＝](\d+)/);
+
+    if (gameNameMatch) {
+      const gameCnName = gameNameMatch[1].trim();
+      if (!gameNameIndex.has(gameCnName)) {
+        gameNameIndex.set(gameCnName, {
+          prefix,
+          gameId: gameIdMatch ? gameIdMatch[1] : null
+        });
+      }
+    }
+  }
+
+  // 补充英文/拼音关键词映射（从已有前缀反推）
+  for (const [, info] of gameNameIndex) {
+    const pinyin = info.prefix.replace(/^tz/, '');
+    if (pinyin && !gameNameIndex.has(pinyin)) {
+      gameNameIndex.set(pinyin, info);
+    }
+  }
+
+  if (gameNameIndex.size > 0) {
+    logger.info(`[SchemaLoader] 动态游戏名索引构建完成: ${gameNameIndex.size} 个游戏`, {
+      games: Array.from(gameNameIndex.entries()).map(([name, info]) => `${name}(${info.prefix})`).join(', ')
+    });
+  }
+}
+
+/**
+ * 获取动态游戏名索引
+ * @returns {Map<string, {prefix: string, gameId: string|null}>}
+ */
+function getGameNameIndex() {
+  return gameNameIndex;
+}
+
 module.exports = {
   // 加载和初始化
   load,
@@ -1162,6 +1223,8 @@ module.exports = {
   getBusinessKeywordMappings,
   // 缓存检查
   isCacheExpired,
+  // 动态游戏名索引
+  getGameNameIndex,
   // 【Phase 1 新增】分层Schema加载
   getLevel1Index,
   getLevel2Detail,

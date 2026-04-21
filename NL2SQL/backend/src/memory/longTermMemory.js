@@ -193,19 +193,7 @@ async function analyzeWithLLM(userQuery, intent, userId) {
  * 解析LLM返回的JSON
  */
 function parseJSONResponse(response) {
-  try {
-    return JSON.parse(response);
-  } catch (e) {
-    const jsonMatch = response.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[1]);
-    }
-    const braceMatch = response.match(/\{[\s\S]*\}/);
-    if (braceMatch) {
-      return JSON.parse(braceMatch[0]);
-    }
-    throw new Error('无法解析JSON响应');
-  }
+  return require('../utils/llmResponseParser').parseJSON(response, 'LongTermMemory');
 }
 
 // ============================================
@@ -218,29 +206,27 @@ function parseJSONResponse(response) {
  * @returns {boolean} 是否过于具体
  */
 function isTooSpecific(intent) {
-  // 如果同时满足以下条件，认为过于具体：
-  // 1. 有具体的filters（如game_id=30）
-  // 2. 有明确的时间范围（非相对时间如"最近7天"）
-  // 3. 维度和指标都很单一
-  
-  const hasSpecificFilters = intent.filters && intent.filters.length > 0 &&
-    intent.filters.some(f => f.value && !isNaN(Number(f.value)));
-  
-  const hasAbsoluteTimeRange = intent.time_range && 
-    intent.time_range.type === 'absolute';
-  
-  const isSimpleQuery = (!intent.dimensions || intent.dimensions.length <= 1) &&
-    (!intent.metrics || intent.metrics.length <= 1);
-  
-  // 过于具体的条件：具体筛选 + 绝对时间 + 简单查询
-  if (hasSpecificFilters && hasAbsoluteTimeRange && isSimpleQuery) {
-    logger.debug('查询过于具体，不存储到长期记忆', { 
+  // 条件列表
+  const conditions = [
+    // 1. 有具体数值型 filters（如 game_id=30）
+    intent.filters && intent.filters.length > 0 &&
+      intent.filters.some(f => f.value && !isNaN(Number(f.value))),
+    // 2. 有绝对时间范围
+    intent.time_range && intent.time_range.type === 'absolute',
+    // 3. 简单查询（维度+指标都≤1）
+    (!intent.dimensions || intent.dimensions.length <= 1) &&
+      (!intent.metrics || intent.metrics.length <= 1)
+  ].filter(Boolean).length;
+
+  // 任意 2 个条件满足即过滤（原来需要全部 3 个）
+  if (conditions >= 2) {
+    logger.debug('查询过于具体，不存储到长期记忆', {
       filters: intent.filters,
-      timeRange: intent.time_range 
+      timeRange: intent.time_range
     });
     return true;
   }
-  
+
   return false;
 }
 
@@ -353,9 +339,10 @@ async function extractAndStorePreferences(userId, intent, originalQuery, options
     });
     
     const storedPreferences = [];
-    
+
     // 4. 尝试使用LLM智能分析（如果启用）
     let llmAnalysis = null;
+    let storageDecision = null;
     if (config.longTermMemory?.useLLMForExtraction) {
       logger.info('[长期记忆] 开始LLM智能分析', { userId });
       llmAnalysis = await analyzeWithLLM(originalQuery, intent, userId);
@@ -400,8 +387,8 @@ async function extractAndStorePreferences(userId, intent, originalQuery, options
     } else {
       // 回退到逻辑判断
       logger.info('[长期记忆] 使用逻辑判断进行存储评估', { userId });
-      
-      const storageDecision = await evaluateStorageValue(userId, intent);
+
+      storageDecision = await evaluateStorageValue(userId, intent);
       logger.info('[长期记忆] 存储价值评估结果', { 
         userId,
         shouldStore: storageDecision.shouldStore,
@@ -417,31 +404,34 @@ async function extractAndStorePreferences(userId, intent, originalQuery, options
       }
     }
     
-    // 5. 提取并存储指标偏好（异步）
-    if (intent.metrics && intent.metrics.length > 0) {
-      logger.info('[长期记忆] 指标偏好已入队（异步存储）', { 
-        userId, 
-        metrics: intent.metrics 
-      });
-      for (const metric of intent.metrics) {
-        memoryQueue.enqueueMemoryStore(
-          () => storeMetricPreference(userId, metric, originalQuery),
-          { type: 'metric_preference', userId }
-        );
+    // 5. 提取并存储指标偏好（仅在逻辑判断路径且决定存储时）
+    // LLM 路径已在上面处理了偏好提取，无需重复存储 metric/dimension
+    if (!llmAnalysis && storageDecision?.shouldStore) {
+      if (intent.metrics && intent.metrics.length > 0) {
+        logger.info('[长期记忆] 指标偏好已入队（异步存储）', {
+          userId,
+          metrics: intent.metrics
+        });
+        for (const metric of intent.metrics) {
+          memoryQueue.enqueueMemoryStore(
+            () => storeMetricPreference(userId, metric, originalQuery),
+            { type: 'metric_preference', userId }
+          );
+        }
       }
-    }
-    
-    // 6. 提取并存储维度偏好（异步）
-    if (intent.dimensions && intent.dimensions.length > 0) {
-      logger.info('[长期记忆] 维度偏好已入队（异步存储）', { 
-        userId, 
-        dimensions: intent.dimensions 
-      });
-      for (const dimension of intent.dimensions) {
-        memoryQueue.enqueueMemoryStore(
-          () => storeDimensionPreference(userId, dimension, originalQuery),
-          { type: 'dimension_preference', userId }
-        );
+
+      // 6. 提取并存储维度偏好（异步）
+      if (intent.dimensions && intent.dimensions.length > 0) {
+        logger.info('[长期记忆] 维度偏好已入队（异步存储）', {
+          userId,
+          dimensions: intent.dimensions
+        });
+        for (const dimension of intent.dimensions) {
+          memoryQueue.enqueueMemoryStore(
+            () => storeDimensionPreference(userId, dimension, originalQuery),
+            { type: 'dimension_preference', userId }
+          );
+        }
       }
     }
     

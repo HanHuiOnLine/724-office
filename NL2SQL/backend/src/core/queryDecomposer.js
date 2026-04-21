@@ -151,25 +151,21 @@ ${keywordList}
  */
 function parseDecomposition(response, originalQuery) {
   try {
-    // 尝试提取JSON
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      
-      return {
-        originalQuery,
-        thought: parsed.thought || '',
-        primaryEntity: parsed.primaryEntity || '未知',
-        dataUnits: parsed.dataUnits || [],
-        estimatedComplexity: parsed.estimatedComplexity || 'medium',
-        requiresJoin: parsed.requiresJoin || false,
-        potentialRisks: parsed.potentialRisks || []
-      };
-    }
+    const parsed = require('../utils/llmResponseParser').parseJSON(response, 'QueryDecomposer');
+
+    return {
+      originalQuery,
+      thought: parsed.thought || '',
+      primaryEntity: parsed.primaryEntity || '未知',
+      dataUnits: parsed.dataUnits || [],
+      estimatedComplexity: parsed.estimatedComplexity || 'medium',
+      requiresJoin: parsed.requiresJoin || false,
+      potentialRisks: parsed.potentialRisks || []
+    };
   } catch (error) {
     logger.warn('[QueryDecomposer] JSON解析失败:', error);
   }
-  
+
   // 解析失败，返回基础分解
   return createFallbackDecomposition(originalQuery);
 }

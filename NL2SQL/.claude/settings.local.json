@@ -9,7 +9,22 @@
       "Bash(grep -h \"^const.*require\\\\|^let.*require\" \"F:\\\\learn\\\\724-office\\\\NL2SQL/backend/src/core\"/*.js)",
       "Bash(grep *)",
       "Bash(xxd)",
-      "Bash(node -e \"const s = require\\('./backend/config/schema-metadata.json'\\); console.log\\('Total tables:', s.tables.length\\); s.tables.forEach\\(t => console.log\\(' -', t.name, '\\(', t.name_cn || '', '\\)'\\)\\);\")"
+      "Bash(node -e \"const s = require\\('./backend/config/schema-metadata.json'\\); console.log\\('Total tables:', s.tables.length\\); s.tables.forEach\\(t => console.log\\(' -', t.name, '\\(', t.name_cn || '', '\\)'\\)\\);\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Total tables: {len\\(d[\\\\\"tables\\\\\"]\\)}'\\); names=[t['name'] for t in d['tables']]; prefixes={}; for n in names: p=n.split\\('_'\\)[0] if '_' in n else n prefixes[p]=prefixes.get\\(p,0\\)+1 for k,v in sorted\\(prefixes.items\\(\\), key=lambda x:-x[1]\\): print\\(f' {k}: {v}'\\) \")",
+      "Bash(node -e \"const d=require\\('./backend/config/schema-metadata.json'\\); console.log\\('Total tables:', d.tables.length\\); const prefixes={}; d.tables.forEach\\(t=>{const parts=t.name.match\\(/^\\([^_]+\\)/\\); const p=parts?parts[1]:'other'; prefixes[p]=\\(prefixes[p]||0\\)+1;}\\); Object.entries\\(prefixes\\).sort\\(\\(a,b\\)=>b[1]-a[1]\\).forEach\\(\\([k,v]\\)=>console.log\\('  '+k+': '+v\\)\\);\")",
+      "Bash(node -e ' *)",
+      "Bash(node -c backend/src/memory/memoryMaintenance.js)",
+      "Bash(node -c backend/src/app.js)",
+      "Bash(node -c backend/src/utils/logger.js)",
+      "Bash(node -c backend/src/core/database.js)",
+      "Bash(node -c backend/src/utils/llmResponseParser.js)",
+      "Bash(node -c backend/src/core/nl2sqlEngine.js)",
+      "Bash(node -c backend/src/memory/longTermMemory.js)",
+      "Bash(node -c backend/src/core/agenticEngine.js)",
+      "Bash(node -c backend/src/core/queryDecomposer.js)",
+      "Bash(node -c backend/src/core/toolLoop.js)",
+      "Bash(node -c backend/src/memory/vectorStore.js)",
+      "Bash(node -c backend/src/core/schemaLoader.js)"
     ]
   }
 }

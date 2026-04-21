@@ -455,86 +455,153 @@ async function searchSchemaSmart(queryVector, queryText, topK = 5) {
     logger.warn('向量数据库未初始化，返回空结果');
     return [];
   }
-  
+
   try {
-    // 1. 意图识别：检测是否提到具体游戏
-    const gameKeywords = ['青木', '无限', '星火', '幻灵', 'tzqingmu', 'tzwuxian', 'tzxinghuo'];
-    const mentionedGame = gameKeywords.find(game => queryText.toLowerCase().includes(game.toLowerCase()));
-    
+    // 1. 意图识别：检测是否提到具体游戏（使用动态游戏名索引）
+    let mentionedGame = null;
+    try {
+      const schemaLoader = require('../core/schemaLoader');
+      const gameNameIndex = schemaLoader.getGameNameIndex ? schemaLoader.getGameNameIndex() : null;
+      if (gameNameIndex && gameNameIndex.size > 0) {
+        const queryLower = queryText.toLowerCase();
+        for (const [gameName, info] of gameNameIndex) {
+          if (queryLower.includes(gameName.toLowerCase())) {
+            mentionedGame = { name: gameName, ...info };
+            break;
+          }
+        }
+      }
+    } catch (_) {
+      // schemaLoader 未就绪时忽略
+    }
+    // 兜底：硬编码关键词（向后兼容）
+    if (!mentionedGame) {
+      const gameKeywords = ['青木', '无限', '星火', '幻灵', 'tzqingmu', 'tzwuxian', 'tzxinghuo'];
+      const matched = gameKeywords.find(game => queryText.toLowerCase().includes(game.toLowerCase()));
+      if (matched) {
+        mentionedGame = { name: matched };
+      }
+    }
+
     // 2. 执行向量搜索（获取更多结果用于重排序）
     const results = await schemaTable
       .search(queryVector)
       .limit(topK * 3)
       .execute();
-    
+
     // 3. 解析结果
     let parsedResults = results.map(row => ({
       text: row.text,
       distance: row._distance,
       metadata: JSON.parse(row.metadata || '{}')
     }));
-    
+
     // 4. 智能重排序
     parsedResults = parsedResults.map(result => {
       let priorityScore = 0;
       const metadata = result.metadata;
-      
+      const tableName = metadata.name || '';
+
+      // 运行时推断 scope 子类型（在 REVECTORIZE 前使用表名模式匹配）
+      const runtimeScope = inferScopeSubtype(tableName, metadata.scope);
+
       // 策略1：如果提到了具体游戏，该游戏表优先级最高
       if (mentionedGame) {
-        const gameName = mentionedGame.replace('tz', '');
-        if (metadata.scope && metadata.scope.includes(gameName)) {
+        const gameName = mentionedGame.name.replace('tz', '');
+        const prefix = mentionedGame.prefix || '';
+        if ((metadata.scope && metadata.scope.includes(gameName)) ||
+            (prefix && tableName.includes(prefix))) {
           priorityScore += 100;
         }
       }
-      
-      // 策略2：平台通用表优先级次高（当未提及游戏时）
-      if (!mentionedGame && metadata.scope === 'platform') {
-        priorityScore += 50;
+
+      // 策略2：分层平台权重（替代统一 +50）
+      if (!mentionedGame) {
+        switch (runtimeScope) {
+          case 'platform_core':   priorityScore += 80; break;  // SDK 核心表
+          case 'platform_other':  priorityScore += 50; break;  // 平台其他
+          case 'report':          priorityScore += 40; break;  // DWD 报表
+          case 'platform_newdb':  priorityScore += 20; break;  // 新平台库
+          case 'platform_olddb':  priorityScore += 10; break;  // 老平台库
+          default:
+            if (runtimeScope.startsWith('game_')) {
+              priorityScore -= 30;  // 游戏表主动降权（未指定游戏时）
+            }
+        }
       }
-      
+
       // 策略3：原始日志表优先级高于聚合报表
       if (metadata.data_type === 'raw_log') {
         priorityScore += 30;
       } else if (metadata.data_type === 'aggregated_report') {
         priorityScore -= 20; // 降低报表优先级
       }
-      
+
       // 策略4：向量距离越小越好（归一化到 0-20 分）
       const distanceScore = Math.max(0, (1 - result.distance) * 20);
       priorityScore += distanceScore;
-      
+
       return {
         ...result,
         priorityScore: priorityScore
       };
     });
-    
+
     // 5. 按优先级分数排序
     parsedResults.sort((a, b) => b.priorityScore - a.priorityScore);
-    
+
     // 6. 限制返回数量
     const finalResults = parsedResults.slice(0, topK);
-    
+
     logger.debug('[VectorStore] 智能搜索结果', {
       query: queryText.substring(0, 50),
-      mentionedGame: mentionedGame || 'none',
+      mentionedGame: mentionedGame ? mentionedGame.name : 'none',
       topResults: finalResults.map(r => ({
         name: r.metadata.name,
         scope: r.metadata.scope,
         score: r.priorityScore.toFixed(2)
       }))
     });
-    
+
     // 7. 记录统计
     evaluation.recordVectorSearch('schema', finalResults);
-    
+
     return finalResults;
-    
+
   } catch (error) {
     logger.error('智能搜索Schema向量失败:', error);
     // 失败时回退到普通搜索
     return searchSchema(queryVector, topK);
   }
+}
+
+/**
+ * 从表名推断 scope 子类型
+ * 在 REVECTORIZE 完成前，通过表名模式匹配补偿 scope 分类不准的问题
+ *
+ * @param {string} tableName - 表名
+ * @param {string} originalScope - 原始 scope
+ * @returns {string} 细化后的 scope
+ */
+function inferScopeSubtype(tableName, originalScope) {
+  // 先判断 new_ 前缀的表
+  if (tableName.startsWith('new_')) {
+    const dbMatch = tableName.match(/^new_(\w+?)\./);
+    if (dbMatch) {
+      const dbName = dbMatch[1];
+      if (dbName === 'tzpingtai')          return 'platform_newdb';
+      if (dbName === 'tzpingtaiold')       return 'platform_olddb';
+      if (dbName === 'external_tables')    return 'external';
+      if (dbName === 'tzpt' || dbName === 'tzbigdata_dm') return 'report';
+      return 'game_' + dbName.replace(/^tz/, '');
+    }
+  }
+  // 非 new_ 前缀
+  if (tableName.startsWith('dwd_'))                return 'report';
+  if (tableName.startsWith('tzpingtai_tz_sdk_'))   return 'platform_core';
+  if (tableName.startsWith('tzpingtai_'))           return 'platform_other';
+
+  return originalScope || 'unknown';
 }
 
 // ============================================

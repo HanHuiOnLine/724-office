@@ -403,30 +403,28 @@ ${schemaDetail}
    * 解析SQL响应
    */
   parseSQLResponse(response) {
+    const { parseJSON, extractSQL } = require('../utils/llmResponseParser');
     try {
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          success: true,
-          sql: parsed.sql || '',
-          explanation: parsed.explanation || '',
-          selectedTables: parsed.selectedTables || []
-        };
-      }
+      const parsed = parseJSON(response, 'AgenticEngine');
+      return {
+        success: true,
+        sql: parsed.sql || '',
+        explanation: parsed.explanation || '',
+        selectedTables: parsed.selectedTables || []
+      };
     } catch (e) {
       // 尝试直接提取SQL
-      const sqlMatch = response.match(/SELECT[\s\S]+?(?=(?:\n\n|```|$))/i);
-      if (sqlMatch) {
+      const sql = extractSQL(response);
+      if (sql) {
         return {
           success: true,
-          sql: sqlMatch[0].trim(),
+          sql,
           explanation: '',
           selectedTables: []
         };
       }
     }
-    
+
     return {
       success: false,
       error: '无法解析SQL',

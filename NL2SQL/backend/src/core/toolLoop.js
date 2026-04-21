@@ -351,29 +351,25 @@ async function analyzeIntentWithTools(userQuery, history = [], userId = null) {
  */
 function parseIntentFromResponse(content) {
   try {
-    // 尝试提取JSON
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      
-      // 转换为标准意图格式
-      return {
-        original_query: parsed.original_query || '',
-        thought: parsed.thought || '',
-        tables: parsed.selected_tables || [],
-        sql: parsed.sql || '',
-        explanation: parsed.explanation || '',
-        confidence: parsed.confidence || 0.8,
-        time_range: parsed.time_range || null,
-        filters: parsed.filters || [],
-        metrics: parsed.metrics || [],
-        dimensions: parsed.dimensions || []
-      };
-    }
+    const parsed = require('../utils/llmResponseParser').parseJSON(content, 'ToolLoop:Intent');
+
+    // 转换为标准意图格式
+    return {
+      original_query: parsed.original_query || '',
+      thought: parsed.thought || '',
+      tables: parsed.selected_tables || [],
+      sql: parsed.sql || '',
+      explanation: parsed.explanation || '',
+      confidence: parsed.confidence || 0.8,
+      time_range: parsed.time_range || null,
+      filters: parsed.filters || [],
+      metrics: parsed.metrics || [],
+      dimensions: parsed.dimensions || []
+    };
   } catch (e) {
     logger.warn('[ToolLoop] 意图解析失败:', e);
   }
-  
+
   // 无法解析，返回基本意图
   return {
     original_query: '',
@@ -476,28 +472,26 @@ function buildSQLPrompt(intent) {
  * @returns {Object} SQL结果
  */
 function parseSQLFromResponse(content) {
+  const { parseJSON, extractSQL } = require('../utils/llmResponseParser');
   try {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        sql: parsed.sql || '',
-        explanation: parsed.explanation || ''
-      };
-    }
+    const parsed = parseJSON(content, 'ToolLoop:SQL');
+    return {
+      sql: parsed.sql || '',
+      explanation: parsed.explanation || ''
+    };
   } catch (e) {
     logger.warn('[ToolLoop] SQL解析失败:', e);
   }
-  
+
   // 尝试直接提取SQL
-  const sqlMatch = content.match(/SELECT[\s\S]+?(?=(?:\n\n|```|$))/i);
-  if (sqlMatch) {
+  const sql = extractSQL(content);
+  if (sql) {
     return {
-      sql: sqlMatch[0].trim(),
+      sql,
       explanation: ''
     };
   }
-  
+
   return {
     sql: '',
     explanation: content

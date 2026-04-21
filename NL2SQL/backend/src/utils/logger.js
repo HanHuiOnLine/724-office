@@ -77,6 +77,19 @@ class Logger extends EventEmitter {
     
     // 追踪上下文：用于关联同一请求的多条日志
     this.traceContext = new Map();
+    // 追踪上下文最大容量，防止无界增长
+    this.traceContextMaxSize = 500;
+    // 追踪条目最大存活时间（毫秒）
+    this.traceContextMaxAge = 10 * 60 * 1000; // 10 分钟
+
+    // 定期清理僵尸追踪条目（每 5 分钟）
+    this._traceCleanupTimer = setInterval(() => {
+      this._cleanupStaleTraces();
+    }, 5 * 60 * 1000);
+    // 允许进程正常退出，不被此定时器阻塞
+    if (this._traceCleanupTimer.unref) {
+      this._traceCleanupTimer.unref();
+    }
     
     // 初始化：确保日志目录存在
     this.ensureLogDirectory();
@@ -313,6 +326,23 @@ class Logger extends EventEmitter {
   // ============================================
 
   /**
+   * 清理超时的僵尸追踪条目
+   */
+  _cleanupStaleTraces() {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [traceId, session] of this.traceContext) {
+      if (now - session.startTime > this.traceContextMaxAge) {
+        this.traceContext.delete(traceId);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      this.debug(`[TraceCleanup] 清理了 ${cleaned} 个僵尸追踪条目，剩余 ${this.traceContext.size} 个`);
+    }
+  }
+
+  /**
    * 开始一个追踪会话
    * @param {string} traceId - 追踪ID（如sessionId）
    * @param {string} operation - 操作名称
@@ -320,6 +350,16 @@ class Logger extends EventEmitter {
    * @returns {Object} 追踪会话对象
    */
   startTrace(traceId, operation, context = {}) {
+    // 容量保护：超过上限时清理最老的条目
+    if (this.traceContext.size >= this.traceContextMaxSize) {
+      this._cleanupStaleTraces();
+      // 如果清理后仍超限，删除最老的条目
+      if (this.traceContext.size >= this.traceContextMaxSize) {
+        const oldestKey = this.traceContext.keys().next().value;
+        this.traceContext.delete(oldestKey);
+      }
+    }
+
     const traceSession = {
       traceId,
       operation,
