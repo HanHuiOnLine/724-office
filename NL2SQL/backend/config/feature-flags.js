@@ -77,6 +77,17 @@ const featureFlags = {
    * 启用后，SQL执行失败时自动尝试修复
    */
   AUTO_RECOVERY: process.env.FF_AUTO_RECOVERY === 'true' || false,
+
+  // ============================================
+  // Phase 2 增强: 统一表候选打分(Unified Ranker)
+  // ============================================
+
+  /**
+   * 【Phase 2】统一表候选排序器
+   * 启用后：融合向量分/语义层/关键词/核心表加权到单一打分函数,去除 slice(0,5) 硬截断
+   * 默认 true (紧急回滚时设 FF_UNIFIED_RANKER=false 回退到老 Set+slice(0,5) 行为)
+   */
+  UNIFIED_RANKER: process.env.FF_UNIFIED_RANKER === 'false' ? false : true,
   
   // ============================================
   // 全局开关

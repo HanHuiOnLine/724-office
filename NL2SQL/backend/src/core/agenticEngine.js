@@ -344,10 +344,23 @@ class AgenticNL2SQLEngine {
    */
   async generationPhase(decomposition, tableResult, schemaContext, context) {
     logger.debug('[AgenticEngine] Phase 4: Generation');
-    
-    // 获取推荐的表
-    const selectedTables = tableResult.recommendedTables?.slice(0, 5) || [];
-    
+
+    // 【Phase 2】信任上游 queryDecomposer 已完成 tableRanker 排序+核心保护
+    // 不再 slice(0, 5),空值降级到 schemaLoader 兜底
+    let selectedTables = tableResult.recommendedTables || [];
+    if (selectedTables.length === 0) {
+      logger.warn('[AgenticEngine] recommendedTables 为空,降级走 schemaLoader 兜底');
+      try {
+        const fallback = await schemaLoader.searchRelevantTables(
+          decomposition?.originalQuery || '',
+          8
+        );
+        selectedTables = (fallback || []).map(t => t.name);
+      } catch (e) {
+        logger.warn('[AgenticEngine] schemaLoader 兜底失败', e);
+      }
+    }
+
     // 获取表的详细Schema
     const schemaDetail = schemaLoader.getLevel2Detail(selectedTables, { compact: true });
     

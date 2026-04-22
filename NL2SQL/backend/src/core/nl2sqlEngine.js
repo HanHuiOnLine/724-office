@@ -33,6 +33,10 @@ const summarizer = require('../memory/summarizer');
 const longTermMemory = require('../memory/longTermMemory');
 // 导入向量存储模块（静态导入替代动态require）
 const vectorStore = require('../memory/vectorStore');
+// 【Phase 2】SQL LIMIT 注入工具
+const { ensureLimit } = require('../utils/sqlLimit');
+// 【Phase 2】统一表候选打分器
+const tableRanker = require('./tableRanker');
 
 // ============================================
 // 【Phase 1-4 新增模块】Agentic工作流相关
@@ -1580,18 +1584,20 @@ async function generateSQL(intent, history = [], userId = null) {
   // ============================================
   // 【Phase 2 新增】使用语义层匹配业务概念
   // ============================================
-  let semanticLayerTables = [];
+  let semanticLayerTables = [];           // 仅表名数组,用于 Set 合并兜底
+  let semanticTableObjects = [];          // 【Phase 2】完整对象,喂给 tableRanker
   let semanticLayerInfo = '';
-  
+
   if (semanticLayer && featureFlags.isEnabled('BUSINESS_SEMANTIC_LAYER')) {
     try {
       // 匹配查询中的业务概念
       const matchedConcepts = semanticLayer.matchConcepts(intent.original_query || '');
-      
+
       // 基于概念推荐表
       const tableRecommendation = semanticLayer.recommendTables(matchedConcepts);
-      semanticLayerTables = tableRecommendation.tables.map(t => t.tableName);
-      
+      semanticTableObjects = tableRecommendation.tables || [];
+      semanticLayerTables = semanticTableObjects.map(t => t.tableName);
+
       // 生成语义层提示信息
       if (matchedConcepts.length > 0) {
         semanticLayerInfo = '\n## 业务语义映射（重要）\n';
@@ -1607,7 +1613,7 @@ async function generateSQL(intent, history = [], userId = null) {
             semanticLayerInfo += `- "${concept.name}" 对应字段: ${mappings.field}\n`;
           }
         }
-        
+
         logger.info('[SQL生成] 语义层匹配结果', {
           matchedConcepts: matchedConcepts.map(c => c.name),
           recommendedTables: semanticLayerTables
@@ -1617,29 +1623,53 @@ async function generateSQL(intent, history = [], userId = null) {
       logger.warn('[SQL生成] 语义层处理失败:', e);
     }
   }
-  
-  // 搜索相关表（传入上下文进行智能匹配）
-  // 【优化】限制返回表数量为3，减少Schema负载和Token消耗
-  const relevantTables = await schemaLoader.searchRelevantTables(
-    intent.original_query, 
-    3,
-    context
-  );
-  
-  // 【修复】根据业务关键词推断可能需要的表，并合并到相关表列表中
+
+  // ============================================
+  // 【Phase 2】表候选检索 + tableRanker 统一打分(去 slice(0,5) 硬截断)
+  // ============================================
   const inferredTables = inferTablesFromQuery(intent.original_query);
-  
-  // 【Phase 2 新增】合并语义层推荐的表
-  const allTableNames = new Set([
-    ...relevantTables.map(t => t.name),
-    ...inferredTables,
-    ...semanticLayerTables  // 添加语义层推荐的表
-  ]);
-  
-  // 获取相关表的详细Schema（包含推断的表）
-  // 【优化】限制最大表数量为5，避免Prompt过大
-  const tableNames = [...allTableNames].slice(0, 5);
-  
+
+  let tableNames;
+
+  if (featureFlags.isEnabled('UNIFIED_RANKER')) {
+    // 请求富信号,由 ranker 统一融合向量 / 语义 / 关键词 / 显式 / 推断
+    const raw = await schemaLoader.searchRelevantTables(
+      intent.original_query,
+      16,                                   // 放大检索池供 ranker 重排
+      context,
+      { returnRawSignals: true }
+    );
+    const rankResult = tableRanker.rank(intent.original_query, {
+      vectorResults:  raw.vectorResults || [],
+      semanticTables: semanticTableObjects,
+      keywordMatches: [],
+      inferredTables,
+      explicitTables: raw.explicitTableNames || []
+    }, { cap: 8 });
+    tableNames = rankResult.selected;
+    logger.info('[SQL生成] tableRanker 选表', {
+      ...rankResult.debug,
+      selected: tableNames,
+      topScores: rankResult.ranked.slice(0, 5).map(r => ({
+        name: r.name, score: Math.round(r.finalScore), core: r.isCore, src: r.sources
+      }))
+    });
+  } else {
+    // 回退:保留老逻辑(Set + slice(0,5))
+    const relevantTables = await schemaLoader.searchRelevantTables(
+      intent.original_query,
+      3,
+      context
+    );
+    const allTableNames = new Set([
+      ...relevantTables.map(t => t.name),
+      ...inferredTables,
+      ...semanticLayerTables
+    ]);
+    tableNames = [...allTableNames].slice(0, 5);
+    logger.info('[SQL生成] legacy 选表(UNIFIED_RANKER=false)', { tableNames });
+  }
+
   // 【优化】使用精简版Schema输出，只包含关键字段信息
   const schemaDetail = schemaLoader.getTableSchemaDetailCompact(tableNames, intent);
   
@@ -1786,7 +1816,13 @@ SQL生成规则:
 3. **表名和字段名必须使用上面"可用表结构"中提供的实际数据库名称（英文），禁止使用中文表名或字段名，禁止虚构表名（如orders、transactions等）**
 4. 如果"收入金额"指标对应的表是tzpingtai_tz_sdk_log_pf_order，则必须使用这个表名，不能使用orders或其他别名
 5. 时间字段使用适当的日期函数（DATE_FORMAT, DATE_SUB, CURDATE等）
-6. 添加LIMIT限制，默认不超过1000条
+6. **【硬性约束】LIMIT 必须存在**：
+   - 每条 SQL 必须以 "LIMIT N" 结尾，N ≤ 1000
+   - 即使是 COUNT / SUM / 聚合查询也必须带 LIMIT
+   - 未指定条数时默认使用 "LIMIT 1000"
+   - 反例（会被拒绝）：
+     * SELECT COUNT(*) FROM tzpingtai_tz_sdk_log_pf_order;  ← 缺 LIMIT
+     * SELECT * FROM t ORDER BY id DESC;                    ← 缺 LIMIT
 7. 复杂的查询使用CTE（WITH子句）提高可读性
 8. 添加适当的注释说明
 9. **禁止使用 SELECT ***：必须根据需求明确列出所需的字段名，显式声明每个字段
@@ -1932,9 +1968,13 @@ ${JSON.stringify(intent, null, 2)}
       return result;
     }
     
-    // 添加LIMIT如果缺失
-    if (result.sql && !result.sql.toUpperCase().includes('LIMIT')) {
-      result.sql += ` LIMIT ${config.security.maxQueryRows}`;
+    // 【Phase 2】使用 ensureLimit 工具识别最外层 LIMIT（避免子查询/列名误判）
+    if (result.sql) {
+      const r = ensureLimit(result.sql, config.security.maxQueryRows);
+      result.sql = r.sql;
+      if (r.injected) {
+        logger.info('[SQL生成] LIMIT 自动注入', { maxRows: config.security.maxQueryRows });
+      }
     }
     
     logger.debug('SQL生成完成', { sql: result.sql });

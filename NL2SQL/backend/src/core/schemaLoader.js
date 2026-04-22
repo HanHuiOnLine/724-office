@@ -568,7 +568,8 @@ function extractExplicitTableNames(query = '') {
  * @param {string} context.datasource - 数据源标识（如 new_tzpingtaiold）
  * @returns {Promise<Array>} 相关表列表
  */
-async function searchRelevantTables(query, topK = 5, context = {}) {
+async function searchRelevantTables(query, topK = 8, context = {}, options = {}) {
+  const { returnRawSignals = false } = options || {};
   let enhancedQuery = query;
   const explicitTableNames = extractExplicitTableNames(query);
   
@@ -639,7 +640,20 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
         
         tableNames = [...prioritized, ...others];
       }
-      
+
+      // 【Phase 2】returnRawSignals: 返回富信号供 tableRanker 统一打分(向后兼容)
+      if (returnRawSignals) {
+        return {
+          vectorResults: results.map(r => ({
+            name: (r.metadata && r.metadata.name) || null,
+            priorityScore: r.priorityScore,
+            metadata: r.metadata
+          })).filter(r => r.name),
+          explicitTableNames,
+          tableNames
+        };
+      }
+
       // 获取完整的表定义并限制数量
       return tableNames.slice(0, topK).map(name => getTable(name)).filter(Boolean);
     } catch (error) {
@@ -647,9 +661,21 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
       // 语义搜索失败，回退到关键词匹配
     }
   }
-  
+
   // 回退：使用关键词匹配
-  return keywordMatchTables(enhancedQuery, explicitTableNames);
+  if (returnRawSignals) {
+    const fallback = keywordMatchTables(enhancedQuery, explicitTableNames, topK);
+    return {
+      vectorResults: fallback.map((t, i) => ({
+        name: t.name,
+        priorityScore: Math.max(0, 80 - i * 5),  // 关键词回退也给一个粗略打分
+        metadata: { name: t.name, scope: t.scope || null }
+      })),
+      explicitTableNames,
+      tableNames: fallback.map(t => t.name)
+    };
+  }
+  return keywordMatchTables(enhancedQuery, explicitTableNames, topK);
 }
 
 /**
@@ -659,7 +685,7 @@ async function searchRelevantTables(query, topK = 5, context = {}) {
  * @param {string} query - 查询文本
  * @returns {Array} 匹配的表列表
  */
-function keywordMatchTables(query, explicitTableNames = []) {
+function keywordMatchTables(query, explicitTableNames = [], topK = 8) {
   // 转换为小写进行不区分大小写的匹配
   const lowerQuery = query.toLowerCase();
   // 提取查询中的关键词（简单分词）
@@ -704,7 +730,7 @@ function keywordMatchTables(query, explicitTableNames = []) {
   ];
 
   return [...new Set(orderedTableNames)]
-    .slice(0, 5)
+    .slice(0, topK)
     .map(name => getTable(name))
     .filter(Boolean);
 }

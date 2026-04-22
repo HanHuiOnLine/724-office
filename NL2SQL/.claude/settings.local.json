@@ -31,7 +31,18 @@
       "Bash(node test/phase1/test-query-history.js)",
       "Bash(node test/phase1/test-executeQuery.js)",
       "Bash(node test/phase1/test-entity-resolve.js)",
-      "Bash(python3 -c \"import json, sys; data=json.load\\(sys.stdin\\); print\\(f'表数: {len\\(data[\\\\\"tables\\\\\"]\\)}'\\); import functools; fields = functools.reduce\\(lambda x,y: x+len\\(y.get\\(\\\\\"fields\\\\\",[]\\)\\), data['tables'], 0\\); print\\(f'总字段数: {fields}'\\)\")"
+      "Bash(python3 -c \"import json, sys; data=json.load\\(sys.stdin\\); print\\(f'表数: {len\\(data[\\\\\"tables\\\\\"]\\)}'\\); import functools; fields = functools.reduce\\(lambda x,y: x+len\\(y.get\\(\\\\\"fields\\\\\",[]\\)\\), data['tables'], 0\\); print\\(f'总字段数: {fields}'\\)\")",
+      "Bash(ls *)",
+      "Bash(node backend/test/phase2/test-limit-injection.js)",
+      "Bash(node backend/test/phase1/test-summarizer.js)",
+      "Bash(node backend/test/phase1/test-embedding-flag.js)",
+      "Bash(node backend/test/phase2/test-tableRanker-unit.js)",
+      "Bash(node -e \"require\\('./backend/src/core/nl2sqlEngine'\\); require\\('./backend/src/core/queryDecomposer'\\); require\\('./backend/src/core/agenticEngine'\\); console.log\\('SYNTAX OK'\\);\")",
+      "Bash(node backend/test/phase1/test-sse-error-feedback.js)",
+      "Bash(node backend/test/phase1/test-executeQuery.js)",
+      "Bash(node backend/test/phase1/test-query-history.js)",
+      "Bash(node backend/test/phase1/test-entity-resolve.js)",
+      "Bash(node backend/test/phase2/test-tableRanker-integration.js)"
     ]
   }
 }

@@ -1,0 +1,81 @@
+{
+  "note": "Phase 2 复杂查询回归用例 — 覆盖多维过滤 / 行为序列 / 聚合+明细三类",
+  "cases": [
+    {
+      "id": "c1",
+      "category": "multi-dim-filter",
+      "query": "最近7天渠道 channelA、游戏 tzqingmu 的充值订单数和付费人数",
+      "tablesCalled": {
+        "mustInclude": ["tzpingtai_tz_sdk_log_pf_order"],
+        "maxSize": 8,
+        "coreTableCount": { "min": 1 }
+      },
+      "sqlKeywords": {
+        "required": ["GROUP BY", "COUNT", "create_time", "LIMIT"],
+        "forbidden": ["DELETE", "UPDATE", "DROP", "INSERT"]
+      },
+      "resultAssertions": { "mode": "DRY_RUN" }
+    },
+    {
+      "id": "c2",
+      "category": "multi-dim-filter",
+      "query": "上周每日新平台注册用户数,按 game_id 分组 top10",
+      "tablesCalled": {
+        "mustInclude": ["tzpingtai_tz_sdk_log_pf_reg"],
+        "maxSize": 8,
+        "coreTableCount": { "min": 1 }
+      },
+      "sqlKeywords": {
+        "required": ["GROUP BY", "game_id", "LIMIT"],
+        "forbidden": ["DELETE", "UPDATE", "DROP"]
+      },
+      "resultAssertions": { "mode": "DRY_RUN" }
+    },
+    {
+      "id": "c3",
+      "category": "behavior-sequence",
+      "query": "昨天注册并在当天完成首充的用户数",
+      "tablesCalled": {
+        "mustIncludeAny": [
+          ["tzpingtai_tz_sdk_log_pf_reg", "tzpingtai_tz_sdk_log_pf_first_order"],
+          ["tzpingtai_tz_sdk_log_pf_reg", "tzpingtai_tz_sdk_log_pf_order"]
+        ],
+        "maxSize": 8
+      },
+      "sqlKeywords": {
+        "required": ["JOIN", "DATE", "LIMIT"],
+        "forbidden": ["DELETE", "UPDATE", "DROP"]
+      },
+      "resultAssertions": { "mode": "DRY_RUN" }
+    },
+    {
+      "id": "c4",
+      "category": "behavior-sequence",
+      "query": "最近30天注册后次日登录的留存数",
+      "tablesCalled": {
+        "mustInclude": ["tzpingtai_tz_sdk_log_pf_reg", "tzpingtai_tz_sdk_log_pf_login"],
+        "maxSize": 8
+      },
+      "sqlKeywords": {
+        "requiredAny": [["DATEDIFF"], ["DATE_ADD"], ["DATE_SUB"]],
+        "required": ["JOIN", "LIMIT"],
+        "forbidden": ["DELETE", "UPDATE", "DROP"]
+      },
+      "resultAssertions": { "mode": "DRY_RUN" }
+    },
+    {
+      "id": "c5",
+      "category": "aggregate-plus-detail",
+      "query": "本月充值金额 top10 用户的首充金额、渠道",
+      "tablesCalled": {
+        "mustInclude": ["tzpingtai_tz_sdk_log_pf_order"],
+        "maxSize": 8
+      },
+      "sqlKeywords": {
+        "required": ["SUM", "ORDER BY", "LIMIT", "JOIN"],
+        "forbidden": ["DELETE", "UPDATE", "DROP"]
+      },
+      "resultAssertions": { "mode": "DRY_RUN" }
+    }
+  ]
+}

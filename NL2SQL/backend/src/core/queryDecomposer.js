@@ -16,6 +16,8 @@ const schemaLoader = require('./schemaLoader');
 const semanticLayer = require('./semanticLayer');
 const logger = require('../utils/logger');
 const config = require('./config');
+const tableRanker = require('./tableRanker');
+const featureFlags = require('../../config/feature-flags');
 
 // ============================================
 // 查询分解器核心函数
@@ -293,7 +295,8 @@ async function retrieveTablesByDataUnits(decomposition, topKPerUnit = 3) {
   return {
     decomposition,
     tableCandidates: sortedCandidates,
-    recommendedTables: sortedCandidates.slice(0, 5).map(c => c.table.name)
+    // 【Phase 2】放宽到 8,并交由 mergeTableCandidates / tableRanker 统一裁剪
+    recommendedTables: sortedCandidates.slice(0, 8).map(c => c.table.name)
   };
 }
 
@@ -369,7 +372,34 @@ function mergeTableCandidates(tableCandidates, decomposition) {
   
   // 按综合分数排序
   scoredCandidates.sort((a, b) => b.finalScore - a.finalScore);
-  
+
+  // 【Phase 2】用 tableRanker 做核心表保护 + cap=8 截断
+  if (featureFlags.isEnabled('UNIFIED_RANKER')) {
+    const keywordMatches = scoredCandidates.map(c => ({
+      name: c.table.name,
+      score: c.finalScore * KEYWORD_SCALE
+    }));
+    const { ranked, selected } = tableRanker.rank(
+      decomposition?.originalQuery || '',
+      { vectorResults: [], semanticTables: [], keywordMatches, inferredTables: [], explicitTables: [] },
+      { cap: 8 }
+    );
+    const selectedSet = new Set(selected);
+    const pickedTables = ranked
+      .filter(r => selectedSet.has(r.name))
+      .map(r => scoredCandidates.find(c => c.table.name === r.name))
+      .filter(Boolean);
+    return {
+      tables: pickedTables,
+      analysis: {
+        totalUnits,
+        totalCandidates: tableCandidates.length,
+        topCoverage: scoredCandidates[0]?.coverageScore || 0,
+        topScore: scoredCandidates[0]?.finalScore || 0
+      }
+    };
+  }
+
   return {
     tables: scoredCandidates.slice(0, 5),
     analysis: {
@@ -380,6 +410,9 @@ function mergeTableCandidates(tableCandidates, decomposition) {
     }
   };
 }
+
+// 关键词分缩放因子:finalScore 0-1 → keywordRaw 0-10,落入 normalizeKeyword 的有效上限
+const KEYWORD_SCALE = 10;
 
 // ============================================
 // 导出模块

@@ -17,6 +17,8 @@ const lancedb = require('vectordb');
 const config = require('../core/config');
 // 导入日志模块
 const logger = require('../utils/logger');
+// 【Phase 2】表作用域推断工具(从本文件迁出,供 tableRanker 共用)
+const { inferScopeSubtype } = require('../utils/tableScope');
 // 导入评估模块（用于运行时统计）
 const evaluation = require('../utils/evaluation');
 // 导入 crypto 用于计算 Hash
@@ -577,32 +579,10 @@ async function searchSchemaSmart(queryVector, queryText, topK = 5) {
 
 /**
  * 从表名推断 scope 子类型
- * 在 REVECTORIZE 完成前，通过表名模式匹配补偿 scope 分类不准的问题
- *
- * @param {string} tableName - 表名
- * @param {string} originalScope - 原始 scope
- * @returns {string} 细化后的 scope
+ * @deprecated 已迁移至 backend/src/utils/tableScope.js,此处仅保留以兼容本文件内部其他引用。
+ *             新代码请从 utils/tableScope 导入。
  */
-function inferScopeSubtype(tableName, originalScope) {
-  // 先判断 new_ 前缀的表
-  if (tableName.startsWith('new_')) {
-    const dbMatch = tableName.match(/^new_(\w+?)\./);
-    if (dbMatch) {
-      const dbName = dbMatch[1];
-      if (dbName === 'tzpingtai')          return 'platform_newdb';
-      if (dbName === 'tzpingtaiold')       return 'platform_olddb';
-      if (dbName === 'external_tables')    return 'external';
-      if (dbName === 'tzpt' || dbName === 'tzbigdata_dm') return 'report';
-      return 'game_' + dbName.replace(/^tz/, '');
-    }
-  }
-  // 非 new_ 前缀
-  if (tableName.startsWith('dwd_'))                return 'report';
-  if (tableName.startsWith('tzpingtai_tz_sdk_'))   return 'platform_core';
-  if (tableName.startsWith('tzpingtai_'))           return 'platform_other';
-
-  return originalScope || 'unknown';
-}
+// inferScopeSubtype 已从 utils/tableScope require,无需在此重复定义
 
 // ============================================
 // 查询历史向量操作

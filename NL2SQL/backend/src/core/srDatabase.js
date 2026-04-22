@@ -14,6 +14,7 @@
 
 const config = require('./config');
 const logger = require('../utils/logger');
+const { ensureLimit, hasOuterLimit } = require('../utils/sqlLimit');
 
 // 连接池单例
 let pool = null;
@@ -96,12 +97,24 @@ async function executeQuery(sql, params = [], options = {}) {
     throw new Error('SR 数据库未初始化（连接池不可用）');
   }
   const timeoutMs = options.timeoutMs || config.srDatabase.queryTimeoutMs || 30000;
+
+  // 【Phase 2 / TODO T3】执行层 LIMIT 兜底：若上游未注入外层 LIMIT，这里按 maxRows 补全
+  // 避免大结果集全量从 MySQL 拉回再应用层 slice
+  let finalSql = sql;
+  if (!hasOuterLimit(sql)) {
+    const limited = ensureLimit(sql, config.srDatabase.maxRows);
+    finalSql = limited.sql;
+    if (limited.injected) {
+      logger.warn('[SR-DB] 执行前补 LIMIT（上游未注入）', { maxRows: config.srDatabase.maxRows });
+    }
+  }
+
   const conn = await pool.getConnection();
   try {
     await conn.query('SET SESSION TRANSACTION READ ONLY');
     // MAX_EXECUTION_TIME 仅对 SELECT 生效，单位毫秒
     await conn.query(`SET SESSION MAX_EXECUTION_TIME = ${Math.max(1000, timeoutMs)}`);
-    const [rows, fields] = await conn.query({ sql, timeout: timeoutMs }, params);
+    const [rows, fields] = await conn.query({ sql: finalSql, timeout: timeoutMs }, params);
     const normalizedRows = Array.isArray(rows) ? rows : [];
     return {
       rows: normalizedRows,
