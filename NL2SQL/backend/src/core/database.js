@@ -856,6 +856,93 @@ async function getRecentPatternCount(userId, patternType, days = 7) {
 }
 
 // ============================================
+// 查询历史（query_history）相关操作
+// ============================================
+
+/**
+ * 在查询开始时写入一条 pending 记录，返回 historyId
+ * 主流程在 processQuery 入口调用，确保每次查询都有一行对应历史
+ * @param {Object} params
+ * @param {string} params.sessionId
+ * @param {string} params.userId
+ * @param {string} params.naturalQuery
+ * @returns {Promise<number|null>} 新记录的自增 ID，失败返回 null
+ */
+async function createQueryHistory({ sessionId, userId, naturalQuery }) {
+  try {
+    const result = await run(
+      `INSERT INTO query_history (session_id, user_id, natural_query, status, created_at)
+       VALUES (?, ?, ?, 'pending', CURRENT_TIMESTAMP)`,
+      [sessionId || null, userId || 'anonymous', naturalQuery || '']
+    );
+    return result.lastID;
+  } catch (error) {
+    logger.warn('创建 query_history 记录失败:', error.message);
+    return null;
+  }
+}
+
+/**
+ * 将查询标记为成功，写入生成的 SQL、耗时、行数与样本结果
+ * @param {number} id - createQueryHistory 返回的 historyId
+ * @param {Object} params
+ * @param {string} params.generatedSql
+ * @param {number} params.executionTime
+ * @param {number} params.rowCount
+ * @param {Object} [params.result] - 可序列化的结果摘要（不建议写入完整结果集）
+ */
+async function markQueryHistorySuccess(id, { generatedSql, executionTime, rowCount, result }) {
+  if (!id) return;
+  try {
+    await run(
+      `UPDATE query_history
+          SET generated_sql = ?, status = 'success',
+              execution_time = ?, row_count = ?,
+              result = ?, executed_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+      [
+        generatedSql || null,
+        typeof executionTime === 'number' ? executionTime : null,
+        typeof rowCount === 'number' ? rowCount : null,
+        result ? JSON.stringify(result).slice(0, 100000) : null,
+        id
+      ]
+    );
+  } catch (error) {
+    logger.warn('更新 query_history 成功状态失败:', error.message);
+  }
+}
+
+/**
+ * 将查询标记为失败，写入错误信息
+ * @param {number} id
+ * @param {Object} params
+ * @param {string} [params.generatedSql]
+ * @param {number} [params.executionTime]
+ * @param {string} params.errorMessage
+ */
+async function markQueryHistoryFailure(id, { generatedSql, executionTime, errorMessage }) {
+  if (!id) return;
+  try {
+    await run(
+      `UPDATE query_history
+          SET generated_sql = ?, status = 'failed',
+              execution_time = ?, error_message = ?,
+              executed_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+      [
+        generatedSql || null,
+        typeof executionTime === 'number' ? executionTime : null,
+        (errorMessage || '').toString().slice(0, 2000),
+        id
+      ]
+    );
+  } catch (error) {
+    logger.warn('更新 query_history 失败状态失败:', error.message);
+  }
+}
+
+// ============================================
 // 关闭数据库
 // ============================================
 
@@ -1010,6 +1097,10 @@ module.exports = {
   deleteUserPreference,
   getRecentPatternCount,
   cleanupDuplicateFieldAliases,
+  // 查询历史
+  createQueryHistory,
+  markQueryHistorySuccess,
+  markQueryHistoryFailure,
   // 关闭连接
   close
 };

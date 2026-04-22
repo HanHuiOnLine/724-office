@@ -148,7 +148,7 @@ async function summarizeDialogue(history, options = {}) {
     });
     
     // 调用 LLM 生成摘要
-    const summary = await llmService.simpleChat(dialogueText, systemPrompt);
+    let summary = await llmService.simpleChat(dialogueText, systemPrompt);
     
     // 验证摘要长度
     const summaryTokens = tokenBudget.estimateTokens(summary);

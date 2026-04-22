@@ -190,7 +190,7 @@ function sendError(conn, errorMessage) {
 
 /**
  * 广播消息到指定会话的所有连接
- * 
+ *
  * @param {string} sessionId - 会话ID
  * @param {Object} message - 要广播的消息
  */
@@ -201,6 +201,35 @@ function broadcastToSession(sessionId, message) {
       sendMessage(conn, message);
     });
   }
+}
+
+/**
+ * 判断会话是否存在活跃 SSE 连接
+ * 用于 POST /sse/query 前置校验，避免“提交成功但连接不在”
+ * @param {string} sessionId
+ * @returns {boolean}
+ */
+function hasActiveConnection(sessionId) {
+  const list = connections.get(sessionId);
+  return !!(list && list.length > 0);
+}
+
+/**
+ * 以统一格式向指定会话推送 error 事件
+ * 若连接已断开，仅记录告警
+ * @param {string} sessionId
+ * @param {string} message
+ */
+function pushError(sessionId, message) {
+  const list = connections.get(sessionId);
+  if (!list || list.length === 0) {
+    logger.warn('推送 error 时 SSE 连接已断开', { sessionId, message });
+    return;
+  }
+  broadcastToSession(sessionId, {
+    type: 'error',
+    data: { message, timestamp: Date.now() }
+  });
 }
 
 // ============================================
@@ -219,20 +248,24 @@ async function handleQuery(sessionId, query) {
   // 获取该会话的连接列表
   const connList = connections.get(sessionId);
   if (!connList || connList.length === 0) {
-    throw new Error('SSE连接未建立');
+    // 连接可能已断开：仅记录告警，不 throw，避免 unhandled rejection
+    logger.warn('handleQuery 调用时 SSE 连接未建立或已断开', { sessionId });
+    return null;
   }
-  
+
   // 使用第一个连接作为主连接
   const conn = connList[0];
-  
+
   // 检查是否正在处理其他请求
   if (conn.isProcessing) {
-    throw new Error('正在处理其他请求，请稍候');
+    pushError(sessionId, '正在处理其他请求，请稍候');
+    return null;
   }
-  
+
   // 获取查询内容
   if (!query || query.trim() === '') {
-    throw new Error('查询内容不能为空');
+    pushError(sessionId, '查询内容不能为空');
+    return null;
   }
   
   // 标记为正在处理
@@ -341,6 +374,8 @@ module.exports = {
   sendMessage,
   sendError,
   broadcastToSession,
+  hasActiveConnection,
+  pushError,
   // 统计信息
   getConnectionCount,
   getConnectionList,

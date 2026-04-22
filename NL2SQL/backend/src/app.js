@@ -42,6 +42,8 @@ const config = require('./core/config');
 const logger = require('./utils/logger');
 // 导入数据库初始化模块，负责SQLite数据库的初始化和连接
 const database = require('./core/database');
+// SR 业务数据库（MySQL）连接池
+const srDatabase = require('./core/srDatabase');
 // 导入向量数据库初始化模块，负责LanceDB的初始化
 const vectorStore = require('./memory/vectorStore');
 // 导入API路由模块，定义RESTful API端点
@@ -163,6 +165,14 @@ async function initialize() {
     }
 
     // ----------------------------------------
+    // 步骤4.7：初始化 SR 业务数据库连接池（真实执行层）
+    // ----------------------------------------
+    // 失败不阻塞启动，executeQuery 会返回 SR_DB_NOT_READY
+    await srDatabase.initialize();
+    logger.info('[Startup] SR.enabled=%s DRY_RUN=%s EMB.enabled=%s',
+      config.srDatabase.enabled, config.security.dryRun, config.embedding.enabled);
+
+    // ----------------------------------------
     // 步骤5：启动自修复调度器
     // ----------------------------------------
     // 启动定时任务，执行健康检查和维护
@@ -231,6 +241,9 @@ async function gracefulShutdown() {
   // ----------------------------------------
   await database.close();
   logger.info('数据库连接已关闭');
+
+  // 关闭 SR 业务库连接池
+  await srDatabase.shutdown();
 
   // ----------------------------------------
   // 步骤5：退出进程

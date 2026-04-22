@@ -972,15 +972,22 @@ router.get('/sse/stream', async (req, res) => {
 router.post('/sse/query', async (req, res) => {
   try {
     const { session_id, query } = req.body;
-    
+
     if (!session_id) {
       return res.status(400).json({ error: '缺少session_id参数' });
     }
-    
+
     if (!query || query.trim() === '') {
       return res.status(400).json({ error: '查询内容不能为空' });
     }
-    
+
+    // 必须先建立 SSE 长连接，否则后台处理的结果无法回传，属于“假成功”场景
+    if (!sseHandler.hasActiveConnection(session_id)) {
+      return res.status(409).json({
+        error: 'SSE 连接未建立，请先建立 /api/sse/stream 长连接再提交查询'
+      });
+    }
+
     // 检查会话标题，如果是默认标题则更新为查询内容
     const session = await database.getSession(session_id);
     if (session && session.title === '新会话') {
@@ -988,13 +995,16 @@ router.post('/sse/query', async (req, res) => {
       const newTitle = query.trim().slice(0, 20) + (query.trim().length > 20 ? '...' : '');
       await database.updateSessionTitle(session_id, newTitle);
     }
-    
-    // 异步处理查询，结果通过SSE推送
-    sseHandler.handleQuery(session_id, query);
-    
+
+    // 后台异步处理，失败时兜底通过 SSE 推送 error 事件，避免 “200 OK + 前端无反馈”
+    sseHandler.handleQuery(session_id, query).catch((err) => {
+      logger.error('[SSE] 后台处理异常，向前端推送 error:', err);
+      sseHandler.pushError(session_id, err.message || '处理查询失败');
+    });
+
     // 立即返回成功响应
     res.json({ success: true, message: '查询已提交，请通过SSE接收结果' });
-    
+
   } catch (error) {
     logger.error('提交查询失败:', error);
     res.status(500).json({ error: '提交查询失败: ' + error.message });

@@ -23,6 +23,8 @@ const llmService = require('./llmService');
 const schemaLoader = require('./schemaLoader');
 // 导入数据库模块
 const database = require('./database');
+// SR 业务数据库（mysql2 连接池）
+const srDatabase = require('./srDatabase');
 // 导入Token预算管理模块
 const tokenBudget = require('../utils/tokenBudget');
 // 导入对话摘要模块
@@ -310,32 +312,26 @@ class NL2SQLError extends Error {
  */
 async function resolveEntity(entityName, entityType) {
   logger.info('尝试解析实体', { entityName, entityType });
-  
-  // 获取数据库连接
-  const db = database.getConnection ? database.getConnection() : null;
-  
-  if (!db) {
-    logger.warn('数据库连接不可用，无法解析实体');
-    throw NL2SQLError.entityResolution(
-      entityName, 
-      entityType, 
-      '数据库连接不可用'
-    );
+
+  // 实体表（game_list/channel_list）位于 SR 业务库，需经 srDatabase 连接池
+  if (!srDatabase.isReady()) {
+    logger.warn('SR 数据源未就绪，跳过实体解析');
+    return { found: false, reason: 'SR_DB_NOT_READY' };
   }
-  
+
   try {
     // 根据实体类型查询不同的表
     let sql;
     if (entityType === 'game') {
-      sql = `SELECT game_id as id, game_name as name FROM game_list WHERE game_name LIKE ? LIMIT 5`;
+      sql = `SELECT game_id AS id, game_name AS name FROM game_list WHERE game_name LIKE ? LIMIT 5`;
     } else if (entityType === 'channel') {
-      sql = `SELECT channel_id as id, channel_name as name FROM channel_list WHERE channel_name LIKE ? LIMIT 5`;
+      sql = `SELECT channel_id AS id, channel_name AS name FROM channel_list WHERE channel_name LIKE ? LIMIT 5`;
     } else {
       return { found: false };
     }
-    
-    const results = await db.query(sql, [`%${entityName}%`]);
-    
+
+    const { rows: results } = await srDatabase.executeQuery(sql, [`%${entityName}%`]);
+
     if (results && results.length > 0) {
       // 如果精确匹配，返回第一个
       const exactMatch = results.find(r => r.name === entityName);
@@ -518,19 +514,19 @@ async function resolveEntitiesInIntent(intent, userQuery, userId) {
     // 3. 回退：尝试从数据库实体表模糊匹配（兜底）
     // 【优化】使用单次查询替代循环多次查询
     try {
-      const db = database.getConnection ? database.getConnection() : null;
-      if (db && matchedEntities.length === 0) {
+      // 业务实体表位于 SR 库，必须通过 srDatabase（mysql2 连接池）访问
+      if (srDatabase.isReady() && matchedEntities.length === 0) {
         // 从游戏列表表中模糊搜索 - 提取查询中的潜在游戏名（2-10个字符）
         const potentialNames = extractPotentialEntityNames(userQuery);
-        
+
         if (potentialNames.length > 0) {
           // 【优化】构建单次查询，使用多个LIKE条件
           const likeConditions = potentialNames.map(() => 'game_name LIKE ?').join(' OR ');
           const likeParams = potentialNames.map(name => `%${name}%`);
-          
-          const results = await db.query(
-            `SELECT game_id as id, game_name as name 
-             FROM game_list 
+
+          const { rows: results } = await srDatabase.executeQuery(
+            `SELECT game_id AS id, game_name AS name
+             FROM game_list
              WHERE ${likeConditions}
              LIMIT 20`,
             likeParams
@@ -2033,43 +2029,63 @@ async function executeQuery(sql) {
   }
   
   try {
-    // TODO: 这里需要实现实际的数据源连接和查询
-    // 目前使用模拟数据演示
-    
-    // 模拟查询延迟
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // 模拟返回结果
-    const mockResult = {
-      columns: ['region', 'sales_amount', 'order_count'],
-      rows: [
-        { region: '北京', sales_amount: 150000, order_count: 320 },
-        { region: '上海', sales_amount: 180000, order_count: 410 },
-        { region: '广州', sales_amount: 120000, order_count: 280 }
-      ],
-      rowCount: 3
-    };
-    
-    // 计算执行耗时
-    const executionTime = Date.now() - startTime;
-    
-    logger.info('查询执行完成', { 
-      rowCount: mockResult.rowCount, 
-      executionTime 
+    // 未配置或未就绪 → 不可达数据源，给出明确错误码供上层识别
+    if (!config.srDatabase.enabled) {
+      return {
+        success: false,
+        error: 'SR 数据源未配置（SR_DATABASE_URL 为空）',
+        errorCode: 'SR_DB_NOT_CONFIGURED',
+        executionTime: Date.now() - startTime,
+        sql
+      };
+    }
+    if (!srDatabase.isReady()) {
+      return {
+        success: false,
+        error: 'SR 数据源连接池未就绪（启动时初始化失败）',
+        errorCode: 'SR_DB_NOT_READY',
+        executionTime: Date.now() - startTime,
+        sql
+      };
+    }
+
+    // 调用真实连接池执行 SQL
+    const { rows, columns, rowCount } = await srDatabase.executeQuery(sql, [], {
+      timeoutMs: config.srDatabase.queryTimeoutMs
     });
-    
+
+    // 行数限流（防超大结果集）
+    const maxRows = config.srDatabase.maxRows;
+    const truncated = rowCount > maxRows;
+    const limitedRows = truncated ? rows.slice(0, maxRows) : rows;
+
+    const executionTime = Date.now() - startTime;
+
+    logger.info('查询执行完成', {
+      rowCount,
+      returnedRows: limitedRows.length,
+      truncated,
+      executionTime
+    });
+
     return {
       success: true,
-      data: mockResult,
+      data: {
+        columns,
+        rows: limitedRows,
+        rowCount,
+        truncated
+      },
       executionTime,
       sql
     };
-    
+
   } catch (error) {
     logger.error('查询执行失败:', error);
     return {
       success: false,
       error: error.message,
+      errorCode: error.code || 'SR_EXEC_ERROR',
       executionTime: Date.now() - startTime,
       sql
     };
@@ -2138,7 +2154,7 @@ ${JSON.stringify(result.data.rows.slice(0, 5), null, 2)}
 async function processQuery(userQuery, sessionId, onProgress = null, userId = null) {
   // 记录开始处理日志
   logger.info('开始处理查询', { sessionId, userId, query: userQuery });
-  
+
   // 开始追踪会话
   const traceId = `${sessionId}_${Date.now()}`;
   logger.startTrace(traceId, 'NL2SQL查询处理', {
@@ -2147,14 +2163,21 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
     query: userQuery,
     timestamp: new Date().toISOString()
   });
-  
+
   // 发送进度更新
   const sendProgress = (step, data) => {
     if (onProgress) {
       onProgress({ step, ...data });
     }
   };
-  
+
+  // query_history 记录 ID（无论成功/失败都写入）
+  const historyId = await database.createQueryHistory({
+    sessionId,
+    userId: userId || 'anonymous',
+    naturalQuery: userQuery
+  });
+
   try {
     // ----------------------------------------
     // 步骤1: 获取会话历史
@@ -2535,12 +2558,33 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
     logger.traceStep(traceId, '执行查询', { sql: sqlResult.sql?.substring(0, 100) }, 'start');
     
     const queryResult = await executeQuery(sqlResult.sql);
-    
+
     logger.traceStep(traceId, '执行查询', {
       success: queryResult.success,
       rowCount: queryResult.data?.rowCount,
       executionTime: queryResult.executionTime
     }, queryResult.success ? 'success' : 'error');
+
+    // 写入 query_history 终态（成功/失败）
+    if (queryResult.success) {
+      await database.markQueryHistorySuccess(historyId, {
+        generatedSql: sqlResult.sql,
+        executionTime: queryResult.executionTime,
+        rowCount: queryResult.data?.rowCount || 0,
+        result: {
+          columns: queryResult.data?.columns,
+          sampleRows: Array.isArray(queryResult.data?.rows)
+            ? queryResult.data.rows.slice(0, 20)
+            : []
+        }
+      });
+    } else {
+      await database.markQueryHistoryFailure(historyId, {
+        generatedSql: sqlResult.sql,
+        executionTime: queryResult.executionTime,
+        errorMessage: queryResult.error
+      });
+    }
     
     // ----------------------------------------
     // 步骤7: 格式化结果
@@ -2675,14 +2719,21 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
   } catch (error) {
     logger.error('处理查询失败:', error);
     logger.traceStep(traceId, '处理查询', { error: error.message }, 'error');
-    
+
     // 结束追踪（异常）
     logger.endTrace(traceId, {
       type: 'error',
       error: error.message,
       stack: error.stack
     });
-    
+
+    // 兜底标记 query_history 失败（SQL 生成/验证等前置阶段失败时）
+    await database.markQueryHistoryFailure(historyId, {
+      generatedSql: null,
+      executionTime: null,
+      errorMessage: error.message
+    });
+
     // 保存错误消息
     const errorMsg = `处理失败: ${error.message}`;
     await database.addMessage(sessionId, 'assistant', errorMsg, 'error');

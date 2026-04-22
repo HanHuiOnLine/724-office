@@ -78,10 +78,13 @@ const config = {
    * 用于将文本转换为向量，实现语义检索
    */
   embedding: {
+    // 是否启用 Embedding 向量检索功能
+    // 关闭时跳过相似历史查询检索与查询向量写入分支，退化为关键词/传统路径
+    enabled: process.env.EMBEDDING_ENABLED !== 'false',
     // Embedding模型名称
     model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
     // 向量维度，不同模型维度不同
-    dimension: 1536,
+    dimension: parseInt(process.env.EMBEDDING_DIMENSION) || 1536,
     // 请求超时时间（毫秒）- Embedding可能需要更长时间
     timeout: parseInt(process.env.EMBEDDING_TIMEOUT) || 60000
   },
@@ -116,6 +119,12 @@ const config = {
     // 数据库连接URL
     // 格式: mysql://user:password@host:port/database
     url: process.env.SR_DATABASE_URL || '',
+    // 是否启用真实 SR 数据源执行（依据 URL 自动推断，可被环境变量覆盖）
+    enabled: process.env.SR_DB_ENABLED !== 'false' && !!process.env.SR_DATABASE_URL,
+    // 单条查询的最大执行时长（毫秒），超过则触发 MAX_EXECUTION_TIME 终止
+    queryTimeoutMs: parseInt(process.env.SR_QUERY_TIMEOUT_MS) || 30000,
+    // 单次返回最多保留多少行，防止超大结果集撑爆内存
+    maxRows: parseInt(process.env.SR_MAX_ROWS) || 1000,
     // 连接池配置
     pool: {
       // 最小连接数
