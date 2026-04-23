@@ -365,7 +365,7 @@ class AgenticNL2SQLEngine {
     const schemaDetail = schemaLoader.getLevel2Detail(selectedTables, { compact: true });
     
     // 构建SQL生成Prompt
-    const sqlPrompt = this.buildSQLPrompt(decomposition, schemaDetail);
+    const sqlPrompt = this.buildSQLPrompt(decomposition, schemaDetail, context);
     
     try {
       const response = await llmService.simpleChat('', sqlPrompt);
@@ -386,8 +386,70 @@ class AgenticNL2SQLEngine {
   
   /**
    * 构建SQL生成Prompt
+   *
+   * 注入当前时间 / 最近对话 / 澄清记录 / 结构化 dataUnits,
+   * 让 LLM 不再默认 2024,且能拿到上一轮已给出的物理约束(typeid/int_key*)。
+   *
+   * 回退:PROMPT_INJECT_NOW=false -> buildSQLPromptLegacy
    */
-  buildSQLPrompt(decomposition, schemaDetail) {
+  buildSQLPrompt(decomposition, schemaDetail, context = {}) {
+    if (process.env.PROMPT_INJECT_NOW === 'false') {
+      return this.buildSQLPromptLegacy(decomposition, schemaDetail);
+    }
+
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    // trimHistory 返回 { trimmed, history, removed };取 .history
+    const tokenBudget = require('../utils/tokenBudget');
+    const trimmed = tokenBudget.trimHistory(context.history || [], 3);
+    const trimmedHistory = Array.isArray(trimmed) ? trimmed : (trimmed?.history || []);
+    const recentHistory = trimmedHistory
+      .filter(m => m && m.role === 'user' && typeof m.content === 'string')
+      .map(m => `- user: ${m.content}`)
+      .join('\n');
+
+    const clarifications = (decomposition?.clarificationHistory || [])
+      .slice(-5)
+      .map(h => `Q: ${h.question || ''}\nA: ${h.answer || ''}`)
+      .join('\n\n');
+
+    const dataUnitLines = (decomposition?.dataUnits || [])
+      .map(formatUnitVerbose)
+      .join('\n');
+
+    return `基于以下信息,生成 SQL 查询语句。
+
+## 当前时间
+${now}(所有相对时间/缺省年份以此为锚点)
+
+## 查询需求(原文)
+${decomposition?.originalQuery || ''}
+
+## 对话上下文(最近 3 轮 user 消息)
+${recentHistory || '(无)'}
+
+## 澄清记录
+${clarifications || '(无)'}
+
+## 数据需求单元
+${dataUnitLines || '(无)'}
+
+## 可用表结构
+${schemaDetail}
+
+## 生成要求
+1. 符合 MySQL 语法
+2. 时间字段格式 YYYY-MM-DD HH:mm:ss
+3. 用户给出的 typeid / int_key* 等物理约束必须落到 WHERE
+4. 用户需求缺省年份时,使用"当前时间"的年份
+5. 输出 JSON: { "sql": "...", "explanation": "...", "selectedTables": [...] }
+`;
+  }
+
+  /**
+   * 旧版 buildSQLPrompt(供 PROMPT_INJECT_NOW=false 回退)
+   */
+  buildSQLPromptLegacy(decomposition, schemaDetail) {
     return `基于以下信息，生成SQL查询语句。
 
 ## 查询需求
@@ -642,6 +704,32 @@ function sendProgress(onProgress, step, message) {
   if (onProgress) {
     onProgress({ step, message });
   }
+}
+
+/**
+ * 把一个 dataUnit 序列化为多行文本,尽量保留 filters / timeRange / metric / outputFields
+ * 所有字段 optional,缺失则跳过对应行
+ */
+function formatUnitVerbose(u) {
+  if (!u) return '';
+  const lines = [`- [${u.type || '?'}] ${u.description || ''}`];
+  if (Array.isArray(u.filters) && u.filters.length) {
+    const parts = u.filters.map(f => {
+      if (!f) return '';
+      return `${f.field ?? '?'}${f.operator ?? '='}${f.value ?? ''}`;
+    }).filter(Boolean);
+    if (parts.length) lines.push(`  filters: ${parts.join(', ')}`);
+  }
+  if (u.timeRange && (u.timeRange.start || u.timeRange.end)) {
+    lines.push(`  timeRange: ${u.timeRange.start || '?'} ~ ${u.timeRange.end || '?'} on ${u.timeRange.field || '?'}`);
+  }
+  if (u.metric) {
+    lines.push(`  metric: ${u.metric} ${u.operator || ''} ${u.value ?? ''}`.trim());
+  }
+  if (Array.isArray(u.outputFields) && u.outputFields.length) {
+    lines.push(`  outputFields: ${u.outputFields.join(', ')}`);
+  }
+  return lines.join('\n');
 }
 
 // ============================================

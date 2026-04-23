@@ -63,7 +63,8 @@
       "Bash(node backend/test/phase3/test-auditMigration.js)",
       "Bash(netstat -ano)",
       "Bash(tasklist *)",
-      "Bash(taskkill *)"
+      "Bash(taskkill *)",
+      "Bash(node test/phase3/sql-prompt-date.test.js)"
     ]
   }
 }
