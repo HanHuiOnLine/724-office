@@ -18,6 +18,24 @@ const schemaTools = require('./schemaTools');
 const schemaLoader = require('./schemaLoader');
 const logger = require('../utils/logger');
 const config = require('./config');
+const safeLog = require('../utils/safeLog');
+
+/**
+ * 对工具调用参数做日志脱敏:字符串字段若超过 200 字符则改为 summarizePrompt 摘要。
+ * 用于调试日志,避免把完整用户 query / SQL / schema 片段写入日志。
+ */
+function sanitizeToolArgs(args) {
+  if (!args || typeof args !== 'object') return args;
+  const out = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (typeof v === 'string' && v.length > 200) {
+      out[k] = safeLog.summarizePrompt(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
 
 // ============================================
 // 配置常量
@@ -62,7 +80,7 @@ async function executeToolLoop(userQuery, options = {}) {
   } = options;
   
   logger.info('[ToolLoop] 开始工具循环', {
-    query: userQuery,
+    query: safeLog.summarizePrompt(userQuery),
     historyLength: history.length,
     useLevel1Index
   });
@@ -128,7 +146,7 @@ async function executeToolLoop(userQuery, options = {}) {
       for (const toolCall of toolCalls) {
         const { id, name, args } = toolCall;
         
-        logger.debug(`[ToolLoop] 执行工具: ${name}`, args);
+        logger.debug(`[ToolLoop] 执行工具: ${name}`, sanitizeToolArgs(args));
         
         // 执行工具
         const toolResult = await schemaTools.executeTool(name, args);
@@ -305,7 +323,7 @@ ${tableList}
  * @returns {Promise<Object>} 意图识别结果
  */
 async function analyzeIntentWithTools(userQuery, history = [], userId = null) {
-  logger.debug('[ToolLoop] 开始工具增强的意图识别', { query: userQuery });
+  logger.debug('[ToolLoop] 开始工具增强的意图识别', safeLog.summarizePrompt(userQuery));
   
   try {
     // 使用工具循环处理

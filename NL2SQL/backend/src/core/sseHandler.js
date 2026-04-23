@@ -18,6 +18,12 @@ const logger = require('../utils/logger');
 const database = require('./database');
 // 导入NL2SQL引擎
 const nl2sqlEngine = require('./nl2sqlEngine');
+// 导入Agentic引擎(Phase 3 · T1)
+const agenticEngine = require('./agenticEngine');
+// 导入功能开关(Phase 3 · T1)
+const featureFlags = require('../../config/feature-flags');
+// 导入请求上下文工具(Phase 3 · T1)
+const requestContext = require('./requestContext');
 
 // ============================================
 // 连接管理
@@ -50,8 +56,8 @@ async function handleConnection(req, res) {
     return;
   }
   
-  // 记录连接日志
-  logger.info(`SSE连接建立`, { sessionId, userId, ip: req.ip });
+  // 仅输出到控制台，不写入日志文件
+  console.log(`\x1b[32m[${new Date().toISOString().replace('T', ' ').substring(0, 19)}] [INFO] SSE连接建立\x1b[0m`, { sessionId, userId, ip: req.ip });
   
   // 检查会话是否存在
   let session = await database.getSession(sessionId);
@@ -77,6 +83,8 @@ async function handleConnection(req, res) {
     sessionId: sessionId,
     // 用户ID
     userId: userId,
+    // 请求上下文(Phase 3 · T1,含 userRole/tenantId/requestSource/requestIp)
+    context: requestContext.extractContext(req),
     // 连接时间
     connectedAt: Date.now(),
     // 最后活跃时间
@@ -117,9 +125,10 @@ async function handleConnection(req, res) {
  * @param {Object} conn - 连接信息对象
  */
 function handleClose(conn) {
-  logger.info(`SSE连接关闭`, { 
-    sessionId: conn.sessionId, 
-    connectedAt: conn.connectedAt 
+  // 仅输出到控制台，不写入日志文件
+  console.log(`\x1b[32m[${new Date().toISOString().replace('T', ' ').substring(0, 19)}] [INFO] SSE连接关闭\x1b[0m`, {
+    sessionId: conn.sessionId,
+    connectedAt: conn.connectedAt
   });
   
   // 从连接映射中移除
@@ -238,13 +247,15 @@ function pushError(sessionId, message) {
 
 /**
  * 处理查询请求
- * 调用NL2SQL引擎处理用户查询
- * 
+ * 按 FF_AGENTIC_ENGINE 选择 legacy / agentic 引擎;agentic 失败时若启用 FF_AGENTIC_AUTO_FALLBACK
+ * 则自动回退 legacy,对前端静默(不新增协议事件)。
+ *
  * @param {string} sessionId - 会话ID
  * @param {string} query - 查询内容
- * @returns {Promise<Object>} 处理结果
+ * @param {Object} [context={}] - 请求上下文(user/role/tenant/source/ip),Phase 3 · T1 新增
+ * @returns {Promise<Object|null>} 处理结果,附加 engineUsed / fallbackUsed 标记
  */
-async function handleQuery(sessionId, query) {
+async function handleQuery(sessionId, query, context = {}) {
   // 获取该会话的连接列表
   const connList = connections.get(sessionId);
   if (!connList || connList.length === 0) {
@@ -255,6 +266,11 @@ async function handleQuery(sessionId, query) {
 
   // 使用第一个连接作为主连接
   const conn = connList[0];
+
+  // 如果本次调用没传 context,用 SSE 连接建立时缓存的 context 作兜底
+  if ((!context || Object.keys(context).length === 0) && conn.context) {
+    context = conn.context;
+  }
 
   // 检查是否正在处理其他请求
   if (conn.isProcessing) {
@@ -267,38 +283,85 @@ async function handleQuery(sessionId, query) {
     pushError(sessionId, '查询内容不能为空');
     return null;
   }
-  
+
   // 标记为正在处理
   connList.forEach(c => c.isProcessing = true);
-  
+
+  const onProgress = (progress) => {
+    broadcastToSession(sessionId, { type: 'progress', data: progress });
+  };
+
+  const useAgentic = featureFlags.isEnabled('AGENTIC_ENGINE');
+  const autoFallback = featureFlags.isEnabled('AGENTIC_AUTO_FALLBACK');
+
+  let result = null;
+  let fallbackUsed = false;
+  let engineUsed = 'legacy';
+
   try {
     // 发送开始处理消息
     broadcastToSession(sessionId, {
       type: 'processing',
       data: { message: '开始处理查询...' }
     });
-    
-    // 调用NL2SQL引擎处理查询
-    const result = await nl2sqlEngine.processQuery(
-      query,
-      sessionId,
-      // 进度回调函数
-      (progress) => {
-        broadcastToSession(sessionId, {
-          type: 'progress',
-          data: progress
+
+    if (useAgentic) {
+      engineUsed = 'agentic';
+      try {
+        result = await agenticEngine.processQuery(
+          query,
+          { sessionId, ...context },
+          onProgress
+        );
+        if (!result || result.success === false) {
+          if (!autoFallback) {
+            throw new Error((result && result.error) || 'agentic 引擎返回失败');
+          }
+          logger.warn('[引擎切换] agentic 返回失败,回退 legacy', {
+            sessionId,
+            reason: result && result.error
+          });
+          fallbackUsed = true;
+        }
+      } catch (err) {
+        if (!autoFallback) throw err;
+        logger.warn('[引擎切换] agentic 抛异常,回退 legacy', {
+          sessionId,
+          err: err.message
         });
+        fallbackUsed = true;
       }
-    );
-    
+    }
+
+    if (fallbackUsed || !useAgentic) {
+      engineUsed = fallbackUsed ? 'legacy-after-agentic' : 'legacy';
+      // 【Phase 3 · T3c】把 fallbackUsed 写入 context,便于 nl2sqlEngine 写审计
+      context.fallbackUsed = fallbackUsed;
+      result = await nl2sqlEngine.processQuery(
+        query,
+        sessionId,
+        onProgress,
+        context.userId,
+        context
+      );
+    }
+
+    // 附加引擎标记给前端和审计日志(前端可忽略,审计写入 query_history.fallback_used)
+    const tagged = { ...(result || {}), engineUsed, fallbackUsed };
+
+    // 持久化消息（仅 agentic 路径；legacy 引擎在 nl2sqlEngine 内部已自行落库）
+    if (engineUsed === 'agentic') {
+      await persistAgenticMessages(sessionId, query, tagged);
+    }
+
     // 发送结果
     broadcastToSession(sessionId, {
       type: 'result',
-      data: result
+      data: tagged
     });
-    
-    return result;
-    
+
+    return tagged;
+
   } catch (error) {
     logger.error('处理查询失败:', error);
     broadcastToSession(sessionId, {
@@ -309,6 +372,47 @@ async function handleQuery(sessionId, query) {
   } finally {
     // 标记处理完成
     connList.forEach(c => c.isProcessing = false);
+  }
+}
+
+/**
+ * 落库 agentic 引擎产生的消息（用户提问 + 助手回复）
+ * legacy 引擎不走这里，由 nl2sqlEngine 内部 addMessage 完成
+ */
+async function persistAgenticMessages(sessionId, query, tagged) {
+  try {
+    await database.addMessage(sessionId, 'user', query, 'text');
+
+    if (tagged.type === 'clarification' && tagged.clarification) {
+      await database.addMessage(
+        sessionId,
+        'assistant',
+        tagged.clarification.question || '需要更多信息才能继续',
+        'clarification',
+        { clarification: tagged.clarification }
+      );
+    } else if (tagged.type === 'sql_result') {
+      await database.addMessage(
+        sessionId,
+        'assistant',
+        tagged.explanation || '查询完成',
+        'result',
+        {
+          sql: tagged.sql,
+          selectedTables: tagged.selectedTables,
+          data: tagged.data
+        }
+      );
+    } else if (tagged.type === 'error' || tagged.success === false) {
+      await database.addMessage(
+        sessionId,
+        'assistant',
+        tagged.error || '查询失败',
+        'error'
+      );
+    }
+  } catch (err) {
+    logger.warn('[Persistence] agentic 消息落库失败', { sessionId, err: err.message });
   }
 }
 

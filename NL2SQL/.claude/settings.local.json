@@ -42,7 +42,28 @@
       "Bash(node backend/test/phase1/test-executeQuery.js)",
       "Bash(node backend/test/phase1/test-query-history.js)",
       "Bash(node backend/test/phase1/test-entity-resolve.js)",
-      "Bash(node backend/test/phase2/test-tableRanker-integration.js)"
+      "Bash(node backend/test/phase2/test-tableRanker-integration.js)",
+      "Bash(node backend/test/phase3/test-safeLog.js)",
+      "Bash(node -c backend/src/utils/safeLog.js)",
+      "Bash(node -c backend/src/core/llmService.js)",
+      "Bash(node backend/test/phase3/test-requestContext.js)",
+      "Bash(node -c backend/src/core/requestContext.js)",
+      "Bash(node -c backend/src/core/routes.js)",
+      "Bash(node -c backend/src/core/sseHandler.js)",
+      "Bash(node -c backend/config/feature-flags.js)",
+      "Bash(timeout 30 node backend/test/phase3/test-fallback-integration.js)",
+      "Bash(node -c backend/src/utils/maskResult.js)",
+      "Bash(node -c backend/src/core/config.js)",
+      "Bash(node backend/test/phase3/test-masking.js)",
+      "Bash(node backend/test/phase3/test-fallback-integration.js)",
+      "Bash(npm install *)",
+      "Bash(node -e \"const { Parser } = require\\('node-sql-parser'\\); const p = new Parser\\(\\); const ast = p.astify\\('SELECT * FROM users WHERE id=1', { database: 'mysql' }\\); console.log\\('parser OK, ast.type=', ast.type\\); console.log\\('sqlify:', p.sqlify\\(ast, { database: 'mysql' }\\)\\);\")",
+      "Bash(node -c backend/src/utils/sqlRewriter.js)",
+      "Bash(node backend/test/phase3/test-sqlRewriter.js)",
+      "Bash(node backend/test/phase3/test-auditMigration.js)",
+      "Bash(netstat -ano)",
+      "Bash(tasklist *)",
+      "Bash(taskkill *)"
     ]
   }
 }

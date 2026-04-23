@@ -9,6 +9,10 @@
 // 配置对象定义
 // ============================================
 
+// 【Phase 3 · T3b】RLS env 解析辅助
+// 提前从 sqlRewriter 导入,以便在 config 对象定义时直接使用
+const { parseTenantMapEnv } = require('../utils/sqlRewriter');
+
 /**
  * 应用配置对象
  * 所有配置项都从这里获取，不要直接从process.env读取
@@ -172,10 +176,38 @@ const config = {
     ],
     
     // 敏感字段列表，查询结果中会被脱敏处理
+    // 【Phase 3 · T3a】保留作向后兼容别名;实际脱敏走 masking.rules
     sensitiveFields: [
       'password', 'phone', 'mobile', 'id_card', 'idcard',
       'credit_card', 'creditcard', 'secret', 'token'
-    ]
+    ],
+
+    // 【Phase 3 · T3a】结果脱敏配置
+    // 规则: mid_4 / domain_only / head_tail / redact / first_1 / last_4 / length_stars
+    // 列名匹配大小写不敏感;null/undefined 值透传不脱敏
+    masking: {
+      enabled: process.env.MASKING_ENABLED === 'false' ? false : true,
+      rules: {
+        phone:       'mid_4',
+        mobile:      'mid_4',
+        email:       'domain_only',
+        id_card:     'head_tail',
+        idcard:      'head_tail',
+        credit_card: 'redact',
+        creditcard:  'redact',
+        password:    'redact',
+        secret:      'redact',
+        token:       'redact'
+      }
+    },
+
+    // 【Phase 3 · T3b】行级权限(RLS)配置
+    // tableTenantMap:{tableName: tenantColumn} 形式;列表里的表会被 post-parse 改写追加 tenant 条件
+    // 默认空 map + enabled=false,需显式 opt-in
+    rls: {
+      enabled: process.env.RLS_ENABLED === 'true' || false,
+      tableTenantMap: parseTenantMapEnv(process.env.RLS_TABLE_TENANT_MAP)
+    }
   },
 
   // ----------------------------------------

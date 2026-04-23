@@ -27,6 +27,12 @@ const database = require('./database');
 const srDatabase = require('./srDatabase');
 // 导入Token预算管理模块
 const tokenBudget = require('../utils/tokenBudget');
+// 导入日志脱敏工具(Phase 3 · T2)
+const safeLog = require('../utils/safeLog');
+// 导入结果脱敏工具(Phase 3 · T3a)
+const maskResult = require('../utils/maskResult');
+// 导入 SQL 改写工具(Phase 3 · T3b · RLS)
+const sqlRewriter = require('../utils/sqlRewriter');
 // 导入对话摘要模块
 const summarizer = require('../memory/summarizer');
 // 导入长期记忆模块（静态导入替代动态require）
@@ -1676,13 +1682,12 @@ async function generateSQL(intent, history = [], userId = null) {
   // 【修复】生成Schema映射提示，帮助AI理解表与业务术语的对应关系
   const schemaMappingHints = generateSchemaMappingHints(tableNames);
 
-  logger.info('[SQL生成] 生成Schema详细信息', { 
-    schemaDetail: schemaDetail 
+  logger.debug('[SQL生成] Schema详细信息摘要', {
+    tableCount: tableNames.length,
+    ...safeLog.summarizePrompt(schemaDetail)
   });
 
-  logger.info('[SQL生成] 获取表Schema映射提示', { 
-    schemaMappingHints: schemaMappingHints 
-  });
+  logger.debug('[SQL生成] Schema映射提示摘要', safeLog.summarizePrompt(schemaMappingHints));
   
   // 获取指标定义（包含表名、字段名、聚合方式等完整信息）
   const metricsInfo = intent.metrics.map(m => {
@@ -2097,7 +2102,22 @@ async function executeQuery(sql) {
     // 行数限流（防超大结果集）
     const maxRows = config.srDatabase.maxRows;
     const truncated = rowCount > maxRows;
-    const limitedRows = truncated ? rows.slice(0, maxRows) : rows;
+    let limitedRows = truncated ? rows.slice(0, maxRows) : rows;
+
+    // 【Phase 3 · T3a】结果脱敏:按列名规则在返回前脱敏
+    let maskedCells = 0;
+    if (
+      featureFlags.isEnabled('RESULT_MASKING') &&
+      config.security.masking &&
+      config.security.masking.enabled
+    ) {
+      const masked = maskResult.maskRows(limitedRows, columns, config.security.masking.rules);
+      limitedRows = masked.rows;
+      maskedCells = masked.maskedCells;
+      if (maskedCells > 0) {
+        logger.debug('[脱敏] 已脱敏敏感字段值', { maskedCells, rowCount: limitedRows.length });
+      }
+    }
 
     const executionTime = Date.now() - startTime;
 
@@ -2105,6 +2125,7 @@ async function executeQuery(sql) {
       rowCount,
       returnedRows: limitedRows.length,
       truncated,
+      maskedCells,
       executionTime
     });
 
@@ -2189,11 +2210,21 @@ ${JSON.stringify(result.data.rows.slice(0, 5), null, 2)}
  * @param {string} sessionId - 会话ID
  * @param {Function} onProgress - 进度回调函数（可选）
  * @param {string} userId - 用户ID（用于长期记忆）
+ * @param {Object} [context={}] - 请求上下文(Phase 3 · T1,含 userRole/tenantId/requestSource/requestIp)
  * @returns {Promise<Object>} 处理结果
  */
-async function processQuery(userQuery, sessionId, onProgress = null, userId = null) {
-  // 记录开始处理日志
-  logger.info('开始处理查询', { sessionId, userId, query: userQuery });
+async function processQuery(userQuery, sessionId, onProgress = null, userId = null, context = {}) {
+  // 若调用方未显式传 userId 但 context 中有,则以 context 为准
+  if (!userId && context && context.userId) {
+    userId = context.userId;
+  }
+  // 记录开始处理日志(Phase 3 · T2:query 走摘要)
+  logger.info('开始处理查询', {
+    sessionId,
+    userId,
+    tenantId: context && context.tenantId,
+    query: safeLog.summarizePrompt(userQuery)
+  });
 
   // 开始追踪会话
   const traceId = `${sessionId}_${Date.now()}`;
@@ -2212,10 +2243,15 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
   };
 
   // query_history 记录 ID（无论成功/失败都写入）
+  // 【Phase 3 · T3c】带入 context 审计字段
   const historyId = await database.createQueryHistory({
     sessionId,
     userId: userId || 'anonymous',
-    naturalQuery: userQuery
+    naturalQuery: userQuery,
+    userRole:      context && context.userRole,
+    tenantId:      context && context.tenantId,
+    requestSource: context && context.requestSource,
+    requestIp:     context && context.requestIp
   });
 
   try {
@@ -2590,14 +2626,54 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
     }
     
     logger.traceStep(traceId, 'SQL验证', { valid: true }, 'success');
-    
+
+    // ----------------------------------------
+    // 【Phase 3 · T3b】行级权限 SQL 改写
+    // 在 validateSQL 通过后、executeQuery 之前注入 tenant 过滤条件
+    // 解析/改写失败一律硬拒执行,不静默跳过
+    // ----------------------------------------
+    let finalSql = sqlResult.sql;
+    if (
+      featureFlags.isEnabled('RLS_ENFORCEMENT') &&
+      config.security.rls &&
+      config.security.rls.enabled
+    ) {
+      const rlsResult = sqlRewriter.injectTenantFilter(
+        finalSql,
+        config.security.rls.tableTenantMap,
+        context && context.tenantId
+      );
+      if (rlsResult.refused) {
+        const rlsErr = `RLS_REWRITE_FAILED: ${rlsResult.reason}`;
+        logger.error('[RLS] SQL 改写被拒绝,中止执行', { reason: rlsResult.reason, sessionId });
+        logger.traceStep(traceId, 'RLS改写', { refused: true, reason: rlsResult.reason }, 'error');
+        await database.addMessage(sessionId, 'assistant', rlsErr, 'error');
+        logger.endTrace(traceId, { type: 'error', error: rlsErr });
+        return {
+          success: false,
+          type: 'error',
+          message: rlsErr,
+          errorCode: 'RLS_REWRITE_FAILED',
+          sql: sqlResult.sql
+        };
+      }
+      finalSql = rlsResult.sql;
+      if (rlsResult.applied && rlsResult.applied.length > 0) {
+        context.rlsApplied = rlsResult.applied;
+        logger.info('[RLS] 已注入租户过滤条件', {
+          appliedTables: rlsResult.applied,
+          tenantId: context.tenantId
+        });
+      }
+    }
+
     // ----------------------------------------
     // 步骤6: 执行查询
     // ----------------------------------------
     sendProgress('executing', { message: '执行查询...' });
-    logger.traceStep(traceId, '执行查询', { sql: sqlResult.sql?.substring(0, 100) }, 'start');
-    
-    const queryResult = await executeQuery(sqlResult.sql);
+    logger.traceStep(traceId, '执行查询', { sql: finalSql?.substring(0, 100) }, 'start');
+
+    const queryResult = await executeQuery(finalSql);
 
     logger.traceStep(traceId, '执行查询', {
       success: queryResult.success,
@@ -2606,6 +2682,7 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
     }, queryResult.success ? 'success' : 'error');
 
     // 写入 query_history 终态（成功/失败）
+    // 【Phase 3 · T3c】fallbackUsed 来自 context(由 sseHandler 注入);rlsApplied 来自 RLS 改写阶段
     if (queryResult.success) {
       await database.markQueryHistorySuccess(historyId, {
         generatedSql: sqlResult.sql,
@@ -2616,13 +2693,18 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
           sampleRows: Array.isArray(queryResult.data?.rows)
             ? queryResult.data.rows.slice(0, 20)
             : []
-        }
+        },
+        fallbackUsed: !!(context && context.fallbackUsed),
+        rlsApplied:    context && context.rlsApplied
       });
     } else {
       await database.markQueryHistoryFailure(historyId, {
         generatedSql: sqlResult.sql,
         executionTime: queryResult.executionTime,
-        errorMessage: queryResult.error
+        errorMessage: queryResult.error,
+        errorCode:    queryResult.errorCode || 'SR_EXEC_ERROR',
+        fallbackUsed: !!(context && context.fallbackUsed),
+        rlsApplied:   context && context.rlsApplied
       });
     }
     
@@ -2771,7 +2853,10 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
     await database.markQueryHistoryFailure(historyId, {
       generatedSql: null,
       executionTime: null,
-      errorMessage: error.message
+      errorMessage: error.message,
+      errorCode: error.code || 'PIPELINE_ERROR',
+      fallbackUsed: !!(context && context.fallbackUsed),
+      rlsApplied:   context && context.rlsApplied
     });
 
     // 保存错误消息

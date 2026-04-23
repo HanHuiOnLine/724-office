@@ -18,6 +18,7 @@ const logger = require('../utils/logger');
 const config = require('./config');
 const tableRanker = require('./tableRanker');
 const featureFlags = require('../../config/feature-flags');
+const safeLog = require('../utils/safeLog');
 
 // ============================================
 // 查询分解器核心函数
@@ -38,7 +39,7 @@ const featureFlags = require('../../config/feature-flags');
  * @returns {Promise<Object>} 分解结果
  */
 async function decomposeQueryDynamically(userQuery, context = {}) {
-  logger.debug('[QueryDecomposer] 开始动态查询分解', { query: userQuery });
+  logger.debug('[QueryDecomposer] 开始动态查询分解', safeLog.summarizePrompt(userQuery));
   
   const startTime = Date.now();
   

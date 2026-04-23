@@ -22,6 +22,8 @@ const { URL } = require('url');
 const config = require('./config');
 // 导入日志模块，记录API调用日志
 const logger = require('../utils/logger');
+// 导入日志脱敏工具(Phase 3 · T2)
+const safeLog = require('../utils/safeLog');
 
 // ============================================
 // HTTP请求工具函数
@@ -223,13 +225,25 @@ async function chat(messages, tools = null, stream = false, onStream = null) {
   // 记录开始调用日志
   logger.debug('调用LLM chat API', { messageCount: messages.length, stream });
   
-  // 计算并打印所有消息的prompt总长度
+  // 计算并脱敏打印所有消息的prompt摘要(Phase 3 · T2)
   const totalPromptLength = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
-  console.log(`[LLM Prompt] 消息数量: ${messages.length}, 总字符长度: ${totalPromptLength}`);
-  messages.forEach((m, i) => {
-    console.log(`  [消息${i}] role: ${m.role}, 长度: ${m.content?.length || 0}`);
-    console.log(`  [消息${i}] 内容:`, m.content);
-  });
+  if (safeLog.isPromptFullLoggingEnabled()) {
+    // 调试逃生门:LOG_PROMPT_FULL=true 时打完整内容
+    console.log(`[LLM Prompt] 消息数量: ${messages.length}, 总字符长度: ${totalPromptLength}`);
+    messages.forEach((m, i) => {
+      console.log(`  [消息${i}] role: ${m.role}, 长度: ${m.content?.length || 0}`);
+      console.log(`  [消息${i}] 内容:`, m.content);
+    });
+  } else {
+    logger.debug('[LLM Prompt]', {
+      count: messages.length,
+      totalLength: totalPromptLength,
+      summaries: messages.map(m => ({
+        role: m.role,
+        ...safeLog.summarizePrompt(m.content)
+      }))
+    });
+  }
   
   logger.trace('LLM chat请求详情', {
     model: config.llm.model,

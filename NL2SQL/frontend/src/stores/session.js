@@ -252,29 +252,30 @@ export const useSessionStore = defineStore('session', () => {
         isProcessing.value = false
         processingStatus.value = ''
         processingProgress.value = 0
-        addMessage({
-          role: 'assistant',
-          content: data.data.message,
-          type: data.data.type,
-          metadata: {
-            sql: data.data.sql,
-            data: data.data.data
-          }
-        })
+        if (data.data?.type === 'clarification' && data.data?.clarification) {
+          const c = data.data.clarification
+          addMessage({
+            role: 'assistant',
+            content: c.question || '需要更多信息才能继续',
+            type: 'clarification',
+            metadata: {
+              clarification: c,
+              explanation: c.explanation
+            }
+          })
+        } else {
+          addMessage({
+            role: 'assistant',
+            content: data.data.message,
+            type: data.data.type,
+            metadata: {
+              sql: data.data.sql,
+              data: data.data.data
+            }
+          })
+        }
         // 刷新会话列表以更新标题（如果是第一条消息，后端会更新标题）
         loadSessions()
-        break
-        
-      case 'clarify':
-        // 需要澄清
-        isProcessing.value = false
-        processingStatus.value = ''
-        processingProgress.value = 0
-        addMessage({
-          role: 'assistant',
-          content: data.data.message,
-          type: 'clarify'
-        })
         break
         
       case 'error':

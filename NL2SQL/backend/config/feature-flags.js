@@ -79,6 +79,40 @@ const featureFlags = {
   AUTO_RECOVERY: process.env.FF_AUTO_RECOVERY === 'true' || false,
 
   // ============================================
+  // Phase 3: 引擎入口切换 & 安全收敛
+  // ============================================
+
+  /**
+   * 【Phase 3 · T1】Agentic 引擎失败自动回退 legacy
+   * 反向开关,默认 true(紧急情况设 FF_AGENTIC_AUTO_FALLBACK=false 关闭)
+   * 设 false 时 agentic 失败会直接抛给前端,便于排障
+   */
+  AGENTIC_AUTO_FALLBACK: process.env.FF_AGENTIC_AUTO_FALLBACK === 'false' ? false : true,
+
+  /**
+   * 【Phase 3 · T3a】结果脱敏
+   * 反向开关,默认 true。启用后 executeQuery 返回前按 config.security.masking.rules 对敏感列脱敏
+   * 紧急关闭:FF_RESULT_MASKING=false
+   */
+  RESULT_MASKING: process.env.FF_RESULT_MASKING === 'false' ? false : true,
+
+  /**
+   * 【Phase 3 · T3b】行级权限(RLS)SQL 改写
+   * 正向开关,默认 false。启用后需同时:
+   *   - 设 RLS_ENABLED=true
+   *   - 填写 RLS_TABLE_TENANT_MAP(例 "orders:tenant_id,users:tenant_id")
+   *   - 请求带 X-Tenant-Id header
+   * 最高风险项:Parser 解析失败 / 映射配错时会硬拒 SQL 执行。新表默认不保护,需 opt-in
+   */
+  RLS_ENFORCEMENT: process.env.FF_RLS_ENFORCEMENT === 'true' || false,
+
+  /**
+   * 【Phase 3 · T3c】扩展审计字段写入(query_history 的 user_role/tenant_id/…/rls_applied)
+   * 反向开关,默认 true。字段 NULL-safe,紧急情况才关闭
+   */
+  AUDIT_LOG_EXTENDED: process.env.FF_AUDIT_LOG_EXTENDED === 'false' ? false : true,
+
+  // ============================================
   // Phase 2 增强: 统一表候选打分(Unified Ranker)
   // ============================================
 

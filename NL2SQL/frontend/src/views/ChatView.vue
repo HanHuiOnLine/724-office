@@ -58,20 +58,39 @@
             
             <!-- 数据表格 -->
             <div v-if="message.metadata?.data" class="data-table">
-              <el-table 
-                :data="message.metadata.data.rows" 
+              <el-table
+                :data="message.metadata.data.rows"
                 border
                 size="small"
                 max-height="300"
               >
-                <el-table-column 
-                  v-for="col in message.metadata.data.columns" 
+                <el-table-column
+                  v-for="col in message.metadata.data.columns"
                   :key="col"
                   :prop="col"
                   :label="col"
                   show-overflow-tooltip
                 />
               </el-table>
+            </div>
+
+            <!-- 澄清选项 -->
+            <div v-if="message.type === 'clarification' && message.metadata?.clarification" class="clarification-block">
+              <div v-if="message.metadata.explanation" class="clarification-hint">
+                {{ message.metadata.explanation }}
+              </div>
+              <div class="clarification-options">
+                <el-button
+                  v-for="opt in (message.metadata.clarification.options || [])"
+                  :key="opt"
+                  size="small"
+                  :type="opt === message.metadata.clarification.defaultOption ? 'primary' : 'default'"
+                  :disabled="isProcessing || answeredClarifications.has(message.id)"
+                  @click="answerClarification(message, opt)"
+                >
+                  {{ opt }}
+                </el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -161,6 +180,8 @@ const inputMessage = ref('')
 const messagesContainer = ref(null)
 // 展开状态的消息ID集合
 const expandedMessages = ref(new Set())
+// 已回答的澄清消息ID集合（防止重复点击）
+const answeredClarifications = ref(new Set())
 // 内容长度阈值（超过此长度显示折叠按钮）
 const COLLAPSE_THRESHOLD = 200
 
@@ -289,6 +310,16 @@ function copySQL(sql) {
   }).catch(() => {
     ElMessage.error('复制失败')
   })
+}
+
+/**
+ * 回答澄清问题：把用户选择的选项作为下一条消息发送
+ */
+function answerClarification(message, option) {
+  if (!option || isProcessing.value) return
+  answeredClarifications.value.add(message.id)
+  sessionStore.sendQuery(option)
+  scrollToBottom()
 }
 
 /**
@@ -543,6 +574,26 @@ watch(isProcessing, (newVal) => {
 /* 数据表格 */
 .data-table {
   margin-top: 12px;
+}
+
+.clarification-block {
+  margin-top: 12px;
+  padding: 12px;
+  background-color: #f0f9ff;
+  border: 1px solid #bae0ff;
+  border-radius: 6px;
+}
+
+.clarification-hint {
+  font-size: 12px;
+  color: #606266;
+  margin-bottom: 8px;
+}
+
+.clarification-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* 处理状态指示器 */

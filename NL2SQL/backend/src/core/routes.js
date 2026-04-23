@@ -27,6 +27,8 @@ const database = require('./database');
 const sseHandler = require('./sseHandler');
 // 导入评估模块
 const evaluation = require('../utils/evaluation');
+// 导入请求上下文工具(Phase 3 · T1)
+const requestContext = require('./requestContext');
 
 // ============================================
 // 创建路由实例
@@ -996,8 +998,11 @@ router.post('/sse/query', async (req, res) => {
       await database.updateSessionTitle(session_id, newTitle);
     }
 
-    // 后台异步处理，失败时兜底通过 SSE 推送 error 事件，避免 “200 OK + 前端无反馈”
-    sseHandler.handleQuery(session_id, query).catch((err) => {
+    // 提取请求上下文(user/role/tenant/source/ip),透传给引擎和审计字段
+    const context = requestContext.extractContext(req);
+
+    // 后台异步处理，失败时兜底通过 SSE 推送 error 事件，避免 "200 OK + 前端无反馈"
+    sseHandler.handleQuery(session_id, query, context).catch((err) => {
       logger.error('[SSE] 后台处理异常，向前端推送 error:', err);
       sseHandler.pushError(session_id, err.message || '处理查询失败');
     });

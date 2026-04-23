@@ -120,6 +120,21 @@ CREATE TABLE IF NOT EXISTS query_history (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   -- 查询执行时间
   executed_at DATETIME,
+  -- 【Phase 3 · T3c】审计字段
+  -- 用户角色(admin/analyst/user 等,由 header X-User-Role 注入)
+  user_role TEXT,
+  -- 租户 ID(由 header X-Tenant-Id 注入,RLS 依据)
+  tenant_id TEXT,
+  -- 请求来源(web/cli/api 等,由 header X-Request-Source 注入)
+  request_source TEXT,
+  -- 请求 IP
+  request_ip TEXT,
+  -- 结构化错误码(如 RLS_REWRITE_FAILED / SR_EXEC_ERROR / VALIDATION_ERROR)
+  error_code TEXT,
+  -- 是否走了 agentic→legacy 自动回退(0=否,1=是)
+  fallback_used INTEGER DEFAULT 0,
+  -- RLS 改写命中的表列表(JSON 字符串),未启用/未命中为 NULL
+  rls_applied TEXT,
   -- 外键约束
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
 );
@@ -132,6 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_query_history_session_id ON query_history(session
 CREATE INDEX IF NOT EXISTS idx_query_history_created_at ON query_history(created_at);
 -- 为status创建索引，加速按状态筛选
 CREATE INDEX IF NOT EXISTS idx_query_history_status ON query_history(status);
+-- 【Phase 3 · T3c】tenant_id 索引在 ensureQueryHistoryColumns 内创建(升级路径依赖列先 ALTER 补齐)
 
 -- ============================================
 -- 用户偏好表 (user_preferences)
@@ -271,6 +287,44 @@ async function initialize() {
 // ============================================
 
 /**
+ * 【Phase 3 · T3c】幂等迁移:query_history 审计字段
+ * PRAGMA table_info 收集现有列 → 缺失的逐列 ALTER TABLE ADD COLUMN。
+ * 重复运行是 no-op;历史行新列 NULL(语义正确:Phase 3 前未知)。
+ */
+async function ensureQueryHistoryColumns() {
+  try {
+    const existing = await query(`PRAGMA table_info(query_history)`);
+    const names = new Set(existing.map(r => r.name));
+    const additions = [
+      ['user_role',      'TEXT'],
+      ['tenant_id',      'TEXT'],
+      ['request_source', 'TEXT'],
+      ['request_ip',     'TEXT'],
+      ['error_code',     'TEXT'],
+      ['fallback_used',  'INTEGER DEFAULT 0'],
+      ['rls_applied',    'TEXT']
+    ];
+    let added = 0;
+    for (const [col, type] of additions) {
+      if (!names.has(col)) {
+        await run(`ALTER TABLE query_history ADD COLUMN ${col} ${type}`);
+        added++;
+      }
+    }
+    if (added > 0) {
+      logger.info(`[迁移] query_history 审计字段迁移完成: 新增 ${added} 列`);
+    } else {
+      logger.debug('[迁移] query_history 审计字段已齐全,跳过');
+    }
+    // 不论是新装还是升级,tenant_id 索引都在此处统一保证存在(依赖列已补齐)
+    await run(`CREATE INDEX IF NOT EXISTS idx_query_history_tenant_id ON query_history(tenant_id)`);
+  } catch (e) {
+    // 迁移失败不应阻断启动 — 写入审计字段会降级为 NULL
+    logger.error('[迁移] query_history 审计字段迁移失败:', e.message);
+  }
+}
+
+/**
  * 执行数据库迁移
  * 修复旧版本表结构问题
  */
@@ -336,7 +390,10 @@ async function runMigrations() {
     } else {
       logger.debug('user_preferences 表结构正常，无需迁移');
     }
-    
+
+    // 【Phase 3 · T3c】query_history 审计字段迁移(idempotent)
+    await ensureQueryHistoryColumns();
+
     logger.info('数据库迁移完成');
     
     // 清理重复的字段别名记录（在应用启动时执行一次）
@@ -866,14 +923,31 @@ async function getRecentPatternCount(userId, patternType, days = 7) {
  * @param {string} params.sessionId
  * @param {string} params.userId
  * @param {string} params.naturalQuery
+ * @param {string} [params.userRole]       - Phase 3 · T3c 审计字段
+ * @param {string} [params.tenantId]       - Phase 3 · T3c
+ * @param {string} [params.requestSource]  - Phase 3 · T3c
+ * @param {string} [params.requestIp]      - Phase 3 · T3c
  * @returns {Promise<number|null>} 新记录的自增 ID，失败返回 null
  */
-async function createQueryHistory({ sessionId, userId, naturalQuery }) {
+async function createQueryHistory({
+  sessionId, userId, naturalQuery,
+  userRole, tenantId, requestSource, requestIp
+}) {
   try {
     const result = await run(
-      `INSERT INTO query_history (session_id, user_id, natural_query, status, created_at)
-       VALUES (?, ?, ?, 'pending', CURRENT_TIMESTAMP)`,
-      [sessionId || null, userId || 'anonymous', naturalQuery || '']
+      `INSERT INTO query_history
+         (session_id, user_id, natural_query, status, created_at,
+          user_role, tenant_id, request_source, request_ip)
+       VALUES (?, ?, ?, 'pending', CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+      [
+        sessionId || null,
+        userId || 'anonymous',
+        naturalQuery || '',
+        userRole || null,
+        tenantId || null,
+        requestSource || null,
+        requestIp || null
+      ]
     );
     return result.lastID;
   } catch (error) {
@@ -890,21 +964,29 @@ async function createQueryHistory({ sessionId, userId, naturalQuery }) {
  * @param {number} params.executionTime
  * @param {number} params.rowCount
  * @param {Object} [params.result] - 可序列化的结果摘要（不建议写入完整结果集）
+ * @param {boolean} [params.fallbackUsed] - Phase 3 · T3c,是否 agentic→legacy 回退
+ * @param {string[]} [params.rlsApplied]  - Phase 3 · T3c,RLS 命中的表列表
  */
-async function markQueryHistorySuccess(id, { generatedSql, executionTime, rowCount, result }) {
+async function markQueryHistorySuccess(id, {
+  generatedSql, executionTime, rowCount, result,
+  fallbackUsed, rlsApplied
+}) {
   if (!id) return;
   try {
     await run(
       `UPDATE query_history
           SET generated_sql = ?, status = 'success',
               execution_time = ?, row_count = ?,
-              result = ?, executed_at = CURRENT_TIMESTAMP
+              result = ?, executed_at = CURRENT_TIMESTAMP,
+              fallback_used = ?, rls_applied = ?
         WHERE id = ?`,
       [
         generatedSql || null,
         typeof executionTime === 'number' ? executionTime : null,
         typeof rowCount === 'number' ? rowCount : null,
         result ? JSON.stringify(result).slice(0, 100000) : null,
+        fallbackUsed ? 1 : 0,
+        Array.isArray(rlsApplied) && rlsApplied.length > 0 ? JSON.stringify(rlsApplied) : null,
         id
       ]
     );
@@ -920,20 +1002,30 @@ async function markQueryHistorySuccess(id, { generatedSql, executionTime, rowCou
  * @param {string} [params.generatedSql]
  * @param {number} [params.executionTime]
  * @param {string} params.errorMessage
+ * @param {string} [params.errorCode]     - Phase 3 · T3c,结构化错误码
+ * @param {boolean} [params.fallbackUsed] - Phase 3 · T3c
+ * @param {string[]} [params.rlsApplied]  - Phase 3 · T3c
  */
-async function markQueryHistoryFailure(id, { generatedSql, executionTime, errorMessage }) {
+async function markQueryHistoryFailure(id, {
+  generatedSql, executionTime, errorMessage,
+  errorCode, fallbackUsed, rlsApplied
+}) {
   if (!id) return;
   try {
     await run(
       `UPDATE query_history
           SET generated_sql = ?, status = 'failed',
               execution_time = ?, error_message = ?,
-              executed_at = CURRENT_TIMESTAMP
+              executed_at = CURRENT_TIMESTAMP,
+              error_code = ?, fallback_used = ?, rls_applied = ?
         WHERE id = ?`,
       [
         generatedSql || null,
         typeof executionTime === 'number' ? executionTime : null,
         (errorMessage || '').toString().slice(0, 2000),
+        errorCode || null,
+        fallbackUsed ? 1 : 0,
+        Array.isArray(rlsApplied) && rlsApplied.length > 0 ? JSON.stringify(rlsApplied) : null,
         id
       ]
     );
@@ -1101,6 +1193,8 @@ module.exports = {
   createQueryHistory,
   markQueryHistorySuccess,
   markQueryHistoryFailure,
+  // 【Phase 3 · T3c】幂等迁移函数(供单测直接调用)
+  ensureQueryHistoryColumns,
   // 关闭连接
   close
 };
