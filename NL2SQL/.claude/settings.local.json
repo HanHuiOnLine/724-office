@@ -64,7 +64,17 @@
       "Bash(netstat -ano)",
       "Bash(tasklist *)",
       "Bash(taskkill *)",
-      "Bash(node test/phase3/sql-prompt-date.test.js)"
+      "Bash(node test/phase3/sql-prompt-date.test.js)",
+      "Bash(node backend/test/phase3/clarification-apply.test.js)",
+      "Bash(node -e \"console.log\\(require\\('./src/core/clarificationEngine'\\)\\)\")",
+      "Bash(node test/phase3/clarification-apply.test.js)",
+      "Bash(node test/phase3/clarification-resume.test.js)",
+      "Bash(node test/phase3/sse-clarify-answer-route.test.js)",
+      "Bash(node -c src/core/clarificationEngine.js)",
+      "Bash(node -c src/core/agenticEngine.js)",
+      "Bash(node -c src/core/sseHandler.js)",
+      "Bash(node -c src/core/database.js)",
+      "Bash(node -c src/core/routes.js)"
     ]
   }
 }

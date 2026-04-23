@@ -238,7 +238,7 @@ export function getConfig() {
 /**
  * 发送查询请求
  * 通过HTTP POST发送查询，结果通过SSE推送
- * 
+ *
  * @param {string} sessionId - 会话ID
  * @param {string} query - 查询内容
  * @returns {Promise<Object>} 提交结果
@@ -247,6 +247,23 @@ export function sendQuery(sessionId, query) {
   return apiClient.post('/sse/query', {
     session_id: sessionId,
     query: query
+  })
+}
+
+/**
+ * 批次 B:提交澄清回答
+ * 对应后端 POST /api/sse/clarify-answer,结果仍通过原 SSE 流推回
+ *
+ * @param {string} sessionId - 会话ID
+ * @param {number} parentMessageId - 父澄清消息的自增 id(来自 SSE clarification 事件 message_id)
+ * @param {string} option - 用户回答(选项文本或自由输入)
+ * @returns {Promise<Object>} 提交结果
+ */
+export function sendClarifyAnswer(sessionId, parentMessageId, option) {
+  return apiClient.post('/sse/clarify-answer', {
+    session_id: sessionId,
+    parent_message_id: parentMessageId,
+    option: option
   })
 }
 

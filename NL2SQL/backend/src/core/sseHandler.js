@@ -378,19 +378,52 @@ async function handleQuery(sessionId, query, context = {}) {
 /**
  * 落库 agentic 引擎产生的消息（用户提问 + 助手回复）
  * legacy 引擎不走这里，由 nl2sqlEngine 内部 addMessage 完成
+ *
+ * 批次 B 改动:
+ *   - `tagged.type === 'clarification'` 分支把 decomposition / originalQuery
+ *     / tableCandidates(slice 0-8,仅保留 {name,score}) 一起落入 metadata
+ *   - addMessage 返回的 insertedId 回写到 tagged.message_id,供前端记住
+ *     并在下一轮 POST /sse/clarify-answer 时作为 parent_message_id 回传
+ *
+ * @param {string} sessionId
+ * @param {string} query - 第一轮用户原文(澄清分支需要原文用于续跑)
+ * @param {Object} tagged - 引擎产出结果(可能附带 engineUsed/fallbackUsed)
+ * @param {Object} [options={}]
+ * @param {boolean} [options.persistUser=true] - 是否写 user 消息;handleClarifyAnswer
+ *   已单独写入用户澄清回答,调用这里时应传 false 避免重复落库
  */
-async function persistAgenticMessages(sessionId, query, tagged) {
+async function persistAgenticMessages(sessionId, query, tagged, options = {}) {
+  const { persistUser = true } = options;
   try {
-    await database.addMessage(sessionId, 'user', query, 'text');
+    if (persistUser) {
+      await database.addMessage(sessionId, 'user', query, 'text');
+    }
 
     if (tagged.type === 'clarification' && tagged.clarification) {
-      await database.addMessage(
+      // 批次 B:metadata 扩展,落 decomposition / originalQuery / tableCandidates
+      // 老客户端不认识新字段会自动忽略,兼容无损
+      const candidates = Array.isArray(tagged.tableCandidates) ? tagged.tableCandidates : [];
+      const trimmedCandidates = candidates.slice(0, 8).map(c => ({
+        name: (c && c.table && c.table.name) || (c && c.tableName) || '',
+        score: c && typeof c.score === 'number' ? c.score : 0
+      })).filter(c => c.name);
+
+      const message = await database.addMessage(
         sessionId,
         'assistant',
         tagged.clarification.question || '需要更多信息才能继续',
         'clarification',
-        { clarification: tagged.clarification }
+        {
+          clarification: tagged.clarification,
+          originalQuery: query,
+          decomposition: tagged.decomposition,
+          tableCandidates: trimmedCandidates
+        }
       );
+      // 回写 message_id 给前端,供下一轮 clarify-answer 作 parent_message_id
+      if (message && message.id != null) {
+        tagged.message_id = message.id;
+      }
     } else if (tagged.type === 'sql_result') {
       await database.addMessage(
         sessionId,
@@ -413,6 +446,136 @@ async function persistAgenticMessages(sessionId, query, tagged) {
     }
   } catch (err) {
     logger.warn('[Persistence] agentic 消息落库失败', { sessionId, err: err.message });
+  }
+}
+
+// ============================================
+// 澄清回答处理(批次 B)
+// ============================================
+
+/**
+ * 处理澄清回答
+ *
+ * 前置条件:父澄清消息已落库,带有 metadata.{originalQuery,decomposition,clarification}
+ * (由 persistAgenticMessages 批次 B 分支完成)。
+ *
+ * 流程:
+ *   1. 按 parentMessageId 取父消息,校验 type === 'clarification' 且 metadata 完整
+ *      - 任一缺失 → 降级走 handleQuery(老会话 / 非 agentic 路径的兜底)
+ *   2. 标记 isProcessing,广播 processing 事件
+ *   3. 调用 agenticEngine.resumeFromClarification,context.history 自动组装
+ *      原始 query + 用户回答(配合批次 A 注入 prompt)
+ *   4. 追加写 user 消息(澄清回答) + 助手消息(persistAgenticMessages persistUser=false)
+ *   5. 广播 result 事件
+ *
+ * @param {string} sessionId
+ * @param {number} parentMessageId - 父澄清消息 id(来自前端 metadata.message_id)
+ * @param {string} userAnswer - 用户澄清回答(选项文本或自由输入)
+ * @param {Object} [context={}] - 请求上下文;若不含 history 自动拼装
+ * @returns {Promise<Object|null>}
+ */
+async function handleClarifyAnswer(sessionId, parentMessageId, userAnswer, context = {}) {
+  const connList = connections.get(sessionId);
+  if (!connList || connList.length === 0) {
+    logger.warn('handleClarifyAnswer: SSE 未连接', { sessionId });
+    return null;
+  }
+
+  if (!userAnswer || !String(userAnswer).trim()) {
+    pushError(sessionId, '澄清回答不能为空');
+    return null;
+  }
+
+  // 第一处 SSE 连接缓存的 context 作兜底(与 handleQuery 对齐)
+  const conn = connList[0];
+  if ((!context || Object.keys(context).length === 0) && conn.context) {
+    context = conn.context;
+  }
+
+  // 取父澄清消息
+  let parent = null;
+  try {
+    parent = await database.getMessage(parentMessageId);
+  } catch (e) {
+    logger.warn('handleClarifyAnswer: 读取父消息失败', { parentMessageId, err: e.message });
+  }
+
+  // 父消息校验:不存在或 type 不对或 metadata 缺失 → 降级到 handleQuery
+  const hasValidMeta =
+    parent &&
+    (parent.type === 'clarification' || parent.message_type === 'clarification') &&
+    parent.metadata &&
+    parent.metadata.decomposition &&
+    parent.metadata.originalQuery;
+
+  if (!hasValidMeta) {
+    logger.warn('handleClarifyAnswer: 父消息不完整,降级 handleQuery', {
+      parentMessageId,
+      hasParent: !!parent,
+      hasMetadata: !!(parent && parent.metadata)
+    });
+    return handleQuery(sessionId, String(userAnswer), context);
+  }
+
+  // 正在处理互斥(复用 handleQuery 的简单锁模型)
+  if (conn.isProcessing) {
+    pushError(sessionId, '正在处理其他请求,请稍候');
+    return null;
+  }
+  connList.forEach(c => c.isProcessing = true);
+
+  try {
+    broadcastToSession(sessionId, {
+      type: 'processing',
+      data: { message: '应用澄清回答...' }
+    });
+
+    // 组装 context.history:原始 query(user) + 澄清问题(assistant) + 用户回答(user)
+    // 批次 A 的 buildSQLPrompt 只注入 role==='user' 消息,assistant 项在此只是保持序列完整
+    const originalQuery = parent.metadata.originalQuery;
+    const clarificationQuestion =
+      (parent.metadata.clarification && parent.metadata.clarification.question) ||
+      parent.content ||
+      '';
+    const baseHistory = Array.isArray(context.history) ? context.history : [];
+    const historyWithClarify = [
+      ...baseHistory,
+      { role: 'user', content: originalQuery },
+      { role: 'assistant', content: clarificationQuestion },
+      { role: 'user', content: String(userAnswer) }
+    ];
+    const resumeContext = { sessionId, ...context, history: historyWithClarify };
+
+    const result = await agenticEngine.resumeFromClarification({
+      originalQuery,
+      decomposition: parent.metadata.decomposition,
+      clarification: parent.metadata.clarification,
+      userAnswer: String(userAnswer),
+      context: resumeContext
+    });
+
+    const tagged = {
+      ...(result || {}),
+      engineUsed: 'agentic-resume',
+      fallbackUsed: false
+    };
+
+    // 先落用户回答,再用 persistAgenticMessages 落助手回复(persistUser=false 避免重复)
+    try {
+      await database.addMessage(sessionId, 'user', String(userAnswer), 'text');
+    } catch (e) {
+      logger.warn('[Persistence] user clarify-answer 落库失败', { sessionId, err: e.message });
+    }
+    await persistAgenticMessages(sessionId, String(userAnswer), tagged, { persistUser: false });
+
+    broadcastToSession(sessionId, { type: 'result', data: tagged });
+    return tagged;
+  } catch (err) {
+    logger.error('handleClarifyAnswer 失败:', err);
+    pushError(sessionId, 'SQL 生成失败: ' + err.message);
+    throw err;
+  } finally {
+    connList.forEach(c => c.isProcessing = false);
   }
 }
 
@@ -474,6 +637,8 @@ module.exports = {
   handleConnection,
   // 查询处理
   handleQuery,
+  // 批次 B:澄清回答处理
+  handleClarifyAnswer,
   // 消息发送
   sendMessage,
   sendError,

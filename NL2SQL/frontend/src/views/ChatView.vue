@@ -313,12 +313,18 @@ function copySQL(sql) {
 }
 
 /**
- * 回答澄清问题：把用户选择的选项作为下一条消息发送
+ * 回答澄清问题:批次 B 改为调用 sendClarifyAnswer,把 option 作为对该澄清消息的接续,
+ * 后端据 message.id 取父消息 metadata 恢复 decomposition。
+ * 若 message.id 缺失(老消息或渲染异常),回退走 sendQuery 兜底。
  */
 function answerClarification(message, option) {
   if (!option || isProcessing.value) return
   answeredClarifications.value.add(message.id)
-  sessionStore.sendQuery(option)
+  if (message.id != null) {
+    sessionStore.sendClarifyAnswer(message.id, option)
+  } else {
+    sessionStore.sendQuery(option)
+  }
   scrollToBottom()
 }
 

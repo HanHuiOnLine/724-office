@@ -255,6 +255,8 @@ export const useSessionStore = defineStore('session', () => {
         if (data.data?.type === 'clarification' && data.data?.clarification) {
           const c = data.data.clarification
           addMessage({
+            // 批次 B:记住后端落库的 message_id,下一轮作 parent_message_id 回传
+            id: data.data.message_id,
             role: 'assistant',
             content: c.question || '需要更多信息才能继续',
             type: 'clarification',
@@ -264,13 +266,19 @@ export const useSessionStore = defineStore('session', () => {
             }
           })
         } else {
+          // 批次 B · B-15:兼容 legacy / agentic 的 message/explanation 差异,
+          // 并在两者都为空时给出占位,避免空白消息
+          const content = data.data.message
+            || data.data.explanation
+            || (data.data.sql ? '查询已生成,请查看下方 SQL' : '（空响应)')
           addMessage({
             role: 'assistant',
-            content: data.data.message,
+            content,
             type: data.data.type,
             metadata: {
               sql: data.data.sql,
-              data: data.data.data
+              data: data.data.data,
+              verificationWarning: data.data.verificationWarning
             }
           })
         }
@@ -305,17 +313,17 @@ export const useSessionStore = defineStore('session', () => {
       console.error('SSE未连接')
       return
     }
-    
+
     // 添加用户消息到列表
     addMessage({
       role: 'user',
       content: query,
       type: 'text'
     })
-    
+
     // 标记正在处理
     isProcessing.value = true
-    
+
     try {
       // 通过HTTP POST发送查询请求
       await api.sendQuery(currentSessionId.value, query)
@@ -325,6 +333,39 @@ export const useSessionStore = defineStore('session', () => {
       addMessage({
         role: 'assistant',
         content: '发送查询失败，请稍后重试',
+        type: 'error'
+      })
+    }
+  }
+
+  /**
+   * 批次 B:发送澄清回答
+   * 相比 sendQuery,将 option 作为对澄清消息的接续请求(parent_message_id),
+   * 后端基于已落库的 decomposition 恢复生成,不会把 option 当作新 query。
+   *
+   * @param {number} parentMessageId - 父澄清消息 id(来自 message.id)
+   * @param {string} option - 用户选择的回答
+   */
+  async function sendClarifyAnswer(parentMessageId, option) {
+    if (!sseConnection.value || sseConnection.value.readyState !== EventSource.OPEN) {
+      console.error('SSE未连接')
+      return
+    }
+    // 本地立即插入用户消息,体感连贯
+    addMessage({
+      role: 'user',
+      content: option,
+      type: 'text'
+    })
+    isProcessing.value = true
+    try {
+      await api.sendClarifyAnswer(currentSessionId.value, parentMessageId, option)
+    } catch (error) {
+      console.error('发送澄清回答失败:', error)
+      isProcessing.value = false
+      addMessage({
+        role: 'assistant',
+        content: '发送澄清回答失败,请稍后重试',
         type: 'error'
       })
     }
@@ -394,6 +435,7 @@ export const useSessionStore = defineStore('session', () => {
     addMessage,
     connectSSE,
     sendQuery,
+    sendClarifyAnswer,
     disconnectSSE,
     deleteSession
   }

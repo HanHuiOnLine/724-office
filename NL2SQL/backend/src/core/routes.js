@@ -1016,6 +1016,53 @@ router.post('/sse/query', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/sse/clarify-answer
+ * 批次 B:澄清回答接续
+ * 前端点选澄清选项或自由输入后,经此端点回传 parent_message_id + option,
+ * 后端读父澄清消息的 metadata,恢复 decomposition 并接续生成。
+ *
+ * 请求体:
+ * {
+ *   session_id: "会话ID",
+ *   parent_message_id: 父澄清消息的自增 id(前端存于 clarification 消息 metadata),
+ *   option: "用户回答(选项文本或自由输入)"
+ * }
+ */
+router.post('/sse/clarify-answer', async (req, res) => {
+  try {
+    const { session_id, parent_message_id, option } = req.body || {};
+
+    if (!session_id || !parent_message_id || !option) {
+      return res.status(400).json({
+        error: '缺少必填参数: session_id / parent_message_id / option'
+      });
+    }
+
+    // 必须先建立 SSE 长连接,否则结果无法回推
+    if (!sseHandler.hasActiveConnection(session_id)) {
+      return res.status(409).json({
+        error: 'SSE 连接未建立,请先建立 /api/sse/stream 长连接再提交澄清回答'
+      });
+    }
+
+    // 提取请求上下文(user/role/tenant/source/ip)
+    const context = requestContext.extractContext(req);
+
+    // 后台异步处理,失败时兜底通过 SSE 推 error(避免 "200 OK + 前端无反馈")
+    sseHandler.handleClarifyAnswer(session_id, parent_message_id, option, context)
+      .catch((err) => {
+        logger.error('[SSE-Clarify] 后台异常,向前端推送 error:', err);
+        sseHandler.pushError(session_id, err.message || '处理澄清回答失败');
+      });
+
+    res.json({ success: true, message: '澄清回答已提交,请通过 SSE 接收结果' });
+  } catch (error) {
+    logger.error('提交澄清回答失败:', error);
+    res.status(500).json({ error: '提交澄清回答失败: ' + error.message });
+  }
+});
+
 // ============================================
 // 错误处理
 // ============================================

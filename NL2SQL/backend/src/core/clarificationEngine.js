@@ -399,17 +399,19 @@ function applyClarificationResult(decomposition, clarification, userAnswer) {
     case 'table_selection':
       applyTableSelection(updatedDecomposition, clarification, userAnswer);
       break;
-      
+
     case 'metric_source':
       applyMetricSource(updatedDecomposition, clarification, userAnswer);
       break;
-      
+
     case 'time_granularity':
       applyTimeGranularity(updatedDecomposition, clarification, userAnswer);
       break;
-      
+
+    case 'general':
     default:
-      // 一般性澄清，添加到备注
+      // 批次 B:覆盖 uncovered_data_unit 等场景,抽取回答里的字段/filters 回写到 dataUnits
+      applyUncoveredDataUnit(updatedDecomposition, clarification, userAnswer);
       updatedDecomposition.clarificationNote = userAnswer;
   }
   
@@ -470,6 +472,73 @@ function applyTimeGranularity(decomposition, clarification, userAnswer) {
   }
 }
 
+/**
+ * 批次 B:应用 uncovered_data_unit / general 类型澄清
+ *
+ * 目的:从用户自由文本回答里抽取物理 filter(field=value) 和字段名
+ * (int_keyN / str_keyN / typeid / game_id / channel_id),回写到对应 dataUnit
+ * 的 filters / outputFields / keywords / description,让下一轮生成能看到。
+ *
+ * 选取策略:
+ *   - 若 clarification.details.uncoveredUnits 非空,仅回写到命中的 unit(按 id 匹配)
+ *   - 否则 fallback 回写到全部 dataUnits(避免 uncoveredUnits 缺省时漏补)
+ *
+ * 幂等:
+ *   - filters 去重用 field 比较,同 field 不重复 push
+ *   - outputFields / keywords 用 Set 去重
+ *
+ * @param {Object} decomposition - 已深拷贝的 decomposition
+ * @param {Object} clarification - 澄清对象,读 details.uncoveredUnits
+ * @param {string} userAnswer - 用户自由文本或选项文本
+ */
+function applyUncoveredDataUnit(decomposition, clarification, userAnswer) {
+  if (!decomposition || !userAnswer) return;
+  const uncovered = (clarification && clarification.details && clarification.details.uncoveredUnits) || [];
+
+  // field=number 形式(支持中文等号 =  / 全角等号 =)
+  const filterMatches = [...String(userAnswer).matchAll(/([a-zA-Z_][a-zA-Z0-9_]*)\s*[=＝]\s*([0-9]+)/g)];
+  const extractedFilters = filterMatches.map(m => ({
+    field: m[1],
+    operator: '=',
+    value: Number(m[2])
+  }));
+
+  // 常见物理字段(int_keyN / str_keyN / typeid / game_id / channel_id)
+  const fieldMatches = [...String(userAnswer).matchAll(/\b(int_key\d+|str_key\d+|typeid|game_id|channel_id)\b/g)];
+  const mentionedFields = [...new Set(fieldMatches.map(m => m[1]))];
+
+  if (!Array.isArray(decomposition.dataUnits) || decomposition.dataUnits.length === 0) {
+    return;
+  }
+
+  for (const unit of decomposition.dataUnits) {
+    const isTarget = uncovered.length === 0 || uncovered.some(u => u && u.id === unit.id);
+    if (!isTarget) continue;
+
+    if (extractedFilters.length) {
+      unit.filters = Array.isArray(unit.filters) ? unit.filters : [];
+      for (const f of extractedFilters) {
+        if (!unit.filters.find(x => x && x.field === f.field)) {
+          unit.filters.push(f);
+        }
+      }
+    }
+
+    if (mentionedFields.length) {
+      const prevOutputs = Array.isArray(unit.outputFields) ? unit.outputFields : [];
+      unit.outputFields = [...new Set([...prevOutputs, ...mentionedFields])];
+      unit.description = `${unit.description || ''}; 用户澄清: ${userAnswer}`.trim();
+    }
+
+    const prevKeywords = Array.isArray(unit.keywords) ? unit.keywords : [];
+    unit.keywords = [...new Set([
+      ...prevKeywords,
+      ...mentionedFields,
+      ...extractedFilters.map(f => `${f.field}=${f.value}`)
+    ])];
+  }
+}
+
 // ============================================
 // 导出模块
 // ============================================
@@ -477,12 +546,13 @@ function applyTimeGranularity(decomposition, clarification, userAnswer) {
 module.exports = {
   // 触发器配置
   CLARIFICATION_TRIGGERS,
-  
+
   // 核心函数
   checkClarificationNeeded,
   generateClarification,
   applyClarificationResult,
-  
+
   // 辅助函数
-  createDefaultClarification
+  createDefaultClarification,
+  applyUncoveredDataUnit
 };

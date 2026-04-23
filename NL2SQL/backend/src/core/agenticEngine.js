@@ -691,6 +691,155 @@ ${schemaDetail}
   async applyClarification(decomposition, clarification, userAnswer) {
     return clarificationEngine.applyClarificationResult(decomposition, clarification, userAnswer);
   }
+
+  /**
+   * 批次 B:从澄清回答恢复生成(新增)
+   *
+   * 目的:把第一轮的 originalQuery + decomposition + 用户澄清回答,
+   * 合并后重新走 generation → verification → recovery 三阶段,
+   * 避免第二轮 query 脱离原需求(R1)、applyClarification 无调用者(R5)。
+   *
+   * 与 processQuery 的区别:
+   *   - 不再跑 planning / schemaDiscovery / decomposition / clarification 阶段
+   *   - 直接用上一轮已落库的 decomposition,在其上打补丁(applyClarificationResult)
+   *   - context.history 由 sseHandler 组装后传入,自动带上原始 query + 用户回答,
+   *     配合批次 A 的 buildSQLPrompt 把对话上下文和澄清记录注入 prompt
+   *
+   * @param {Object} params
+   * @param {string} params.originalQuery - 第一轮用户原文
+   * @param {Object} params.decomposition - 第一轮落库的 decomposition
+   * @param {Object} params.clarification - 第一轮产出的 clarification(含 details/question/clarificationType)
+   * @param {string} params.userAnswer    - 用户澄清回答(选项文本或自由输入)
+   * @param {Object} params.context       - 请求上下文(带 history 以触发 prompt 注入)
+   * @returns {Promise<Object>} 与 processQuery 成功分支同形的结果对象
+   */
+  async resumeFromClarification({ originalQuery, decomposition, clarification, userAnswer, context = {} }) {
+    const startTime = Date.now();
+    const traceLog = [];
+
+    logger.info('[AgenticEngine] resumeFromClarification 开始', {
+      sessionId: context.sessionId,
+      originalQuery: originalQuery,
+      clarificationType: clarification && clarification.clarificationType
+    });
+
+    try {
+      // 1. 应用澄清回答,把用户答复抽回 decomposition
+      const updatedDecomposition = clarificationEngine.applyClarificationResult(
+        decomposition,
+        clarification,
+        userAnswer
+      );
+      // 锁回原文,避免下游误用 userAnswer 作为 originalQuery
+      updatedDecomposition.originalQuery = originalQuery || updatedDecomposition.originalQuery;
+      updatedDecomposition.clarificationHistory = updatedDecomposition.clarificationHistory || [];
+      traceLog.push({ phase: 'apply_clarification', result: { clarificationType: clarification && clarification.clarificationType } });
+
+      // 2. 基于更新后的 decomposition 重新检索表
+      const tableResult = await queryDecomposer.retrieveTablesByDataUnits(updatedDecomposition);
+      traceLog.push({ phase: 'table_retrieval', result: {
+        tableCount: (tableResult.tableCandidates || []).length,
+        recommendedTables: tableResult.recommendedTables
+      }});
+
+      // 3. Schema 详情 + 生成(沿用 generationPhase 空值兜底)
+      const schemaContext = {
+        level1Index: schemaTools.getLevel1Index(),
+        toolExploration: null
+      };
+      let sqlResult = await this.generationPhase(
+        updatedDecomposition,
+        tableResult,
+        schemaContext,
+        context
+      );
+      traceLog.push({ phase: 'generation', result: { success: sqlResult.success, hasSql: !!sqlResult.sql } });
+
+      // 4. 验证 + 失败时恢复
+      const verification = await this.verificationPhase(sqlResult);
+      traceLog.push({ phase: 'verification', result: verification });
+
+      if (!verification.success) {
+        // 详细日志便于定位:是表不存在/语法/禁用关键字哪一项失败
+        const failedChecks = (verification.checks || []).filter(c => !c.passed);
+        logger.warn('[AgenticEngine] resumeFromClarification SQL 验证失败,尝试恢复', {
+          error: verification.error,
+          failedChecks: failedChecks.map(c => ({ type: c.type, table: c.table, message: c.message })),
+          sqlPreview: (sqlResult.sql || '').slice(0, 200)
+        });
+
+        // 备份原 SQL,恢复失败时作为降级输出
+        const preservedSql = sqlResult.sql;
+        const preservedExplanation = sqlResult.explanation;
+        const preservedTables = sqlResult.selectedTables;
+
+        sqlResult = await this.recoveryPhase(
+          verification.error,
+          updatedDecomposition,
+          schemaContext,
+          context
+        );
+        traceLog.push({ phase: 'recovery', result: { success: sqlResult.success } });
+
+        // 恢复未产出合法 SQL 且原 SQL 基本语法完整 → 降级为 "可用 + 警告"
+        // 避免前端因 sql=null 显示空白,让用户能看到 SQL 并人工核对
+        const hasBasicSyntax =
+          preservedSql &&
+          /\bSELECT\b/i.test(preservedSql) &&
+          /\bFROM\b/i.test(preservedSql);
+
+        if ((!sqlResult.success || !sqlResult.sql) && hasBasicSyntax) {
+          logger.warn('[AgenticEngine] recovery 未产出有效 SQL,降级返回原 SQL + 警告');
+          sqlResult = {
+            success: true,
+            sql: preservedSql,
+            explanation: `${preservedExplanation || ''}\n\n⚠️ 自动验证未通过(${verification.error});请人工核对表名/字段/条件后再执行。`.trim(),
+            selectedTables: preservedTables || [],
+            verificationWarning: verification.error
+          };
+          traceLog.push({ phase: 'recovery_fallback', result: { preserved: true } });
+        }
+      }
+
+      // 最终仍然没有可用 SQL → 返回 type='error',避免前端渲染空 sql_result
+      if (!sqlResult.success || !sqlResult.sql) {
+        return {
+          success: false,
+          type: 'error',
+          error: sqlResult.error || verification.error || '生成 SQL 失败',
+          decomposition: updatedDecomposition,
+          verification,
+          traceLog,
+          duration: Date.now() - startTime,
+          resumed: true
+        };
+      }
+
+      return {
+        success: sqlResult.success,
+        type: 'sql_result',
+        sql: sqlResult.sql,
+        explanation: sqlResult.explanation,
+        selectedTables: sqlResult.selectedTables,
+        decomposition: updatedDecomposition,
+        verification,
+        verificationWarning: sqlResult.verificationWarning,
+        traceLog,
+        duration: Date.now() - startTime,
+        resumed: true
+      };
+    } catch (error) {
+      logger.error('[AgenticEngine] resumeFromClarification 失败:', error);
+      return {
+        success: false,
+        type: 'error',
+        error: error.message,
+        traceLog,
+        duration: Date.now() - startTime,
+        resumed: true
+      };
+    }
+  }
 }
 
 // ============================================
@@ -738,13 +887,19 @@ function formatUnitVerbose(u) {
 
 module.exports = {
   AgenticNL2SQLEngine,
-  
+
   // 便捷函数
   processQuery: async (userQuery, context, onProgress) => {
     const engine = new AgenticNL2SQLEngine();
     return engine.processQuery(userQuery, context, onProgress);
   },
-  
+
+  // 批次 B 便捷函数:从澄清回答恢复生成
+  resumeFromClarification: async (params) => {
+    const engine = new AgenticNL2SQLEngine();
+    return engine.resumeFromClarification(params);
+  },
+
   // 配置
   MAX_RETRIES,
   MAX_RECOVERY_ATTEMPTS

@@ -670,12 +670,18 @@ async function deleteSession(sessionId) {
 
 /**
  * 添加消息到会话
+ *
+ * 返回值兼容说明(批次 B):
+ *   - 仍保留完整对象 { id, session_id, role, content, type, metadata }
+ *   - 旧调用点 `await database.addMessage(...)` 忽略返回值不受影响
+ *   - 新调用点可通过 `.id` 取 SQLite 自增 lastID,用于后续 getMessage(id)
+ *
  * @param {string} sessionId - 会话ID
  * @param {string} role - 消息角色
  * @param {string} content - 消息内容
  * @param {string} type - 消息类型
  * @param {Object} metadata - 附加元数据
- * @returns {Promise<Object>} 创建的消息
+ * @returns {Promise<Object>} 创建的消息 (id 为新行的自增主键)
  */
 async function addMessage(sessionId, role, content, type = 'text', metadata = null) {
   const sql = `
@@ -684,10 +690,10 @@ async function addMessage(sessionId, role, content, type = 'text', metadata = nu
   `;
   const metaStr = metadata ? JSON.stringify(metadata) : null;
   const result = await run(sql, [sessionId, role, content, type, metaStr]);
-  
+
   // 更新会话时间
   await touchSession(sessionId);
-  
+
   return {
     id: result.lastID,
     session_id: sessionId,
@@ -695,6 +701,28 @@ async function addMessage(sessionId, role, content, type = 'text', metadata = nu
     content,
     type,
     metadata
+  };
+}
+
+/**
+ * 根据消息 id 取一条消息(批次 B 新增)
+ * 用于 /sse/clarify-answer 回溯父澄清消息的 metadata
+ *
+ * @param {number} id - 消息的自增 id
+ * @returns {Promise<Object|null>} 消息对象;metadata 字段已自动 JSON.parse;不存在返回 null
+ */
+async function getMessage(id) {
+  if (id === null || id === undefined) return null;
+  const sql = 'SELECT * FROM messages WHERE id = ?';
+  const row = await queryOne(sql, [id]);
+  if (!row) return null;
+  // message_type 字段名兼容:schema 列为 type,旧文档曾提 message_type,这里统一暴露为 type
+  return {
+    ...row,
+    message_type: row.type,
+    metadata: row.metadata ? (() => {
+      try { return JSON.parse(row.metadata); } catch (_) { return null; }
+    })() : null
   };
 }
 
@@ -1178,6 +1206,7 @@ module.exports = {
   deleteSession,
   // 消息操作
   addMessage,
+  getMessage,
   getSessionMessages,
   // 长期记忆操作
   addUserPreference,

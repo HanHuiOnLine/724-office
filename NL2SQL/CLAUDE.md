@@ -138,6 +138,26 @@ FF_DISABLE_ALL=true                # 全部禁用（紧急回滚）
 4. 引擎执行：意图识别 → 向量检索相关表 → 构建 Prompt → LLM 生成 SQL → 验证（白名单/语法）→ 执行 → 格式化 → SSE 推送结果
 5. 成功查询异步触发长期记忆提炼（`memoryQueue`）
 
+### 澄清分支（批次 B 后）
+
+命中澄清触发器时走独立子链路，避免二轮 query 脱离原需求：
+
+1. 第一轮引擎返回 `type='clarification'` 时，`sseHandler.persistAgenticMessages` 把
+   `{ clarification, originalQuery, decomposition, tableCandidates(slice 0-8, 仅 name/score) }`
+   写入 assistant 消息的 metadata；`addMessage` 返回的 `id` 回写到 `tagged.message_id` 随 SSE
+   `result` 事件推给前端。
+2. 前端把 `message.id = data.data.message_id` 保留在 clarification 消息对象上；用户点选或输入
+   回答后调 `POST /api/sse/clarify-answer { session_id, parent_message_id, option }`。
+3. `sseHandler.handleClarifyAnswer` 通过 `database.getMessage` 读回父消息 metadata，组装 history
+   `[原 query, 澄清问题, 用户回答]`，调 `agenticEngine.resumeFromClarification`。
+4. `resumeFromClarification`：`applyClarificationResult`（含 `applyUncoveredDataUnit` 从回答
+   抽 `field=value` 和 `int_keyN` / `typeid` 等物理字段回写 dataUnits） → `retrieveTablesByDataUnits`
+   → `generationPhase` → `verificationPhase`，失败时 `recoveryPhase`。
+5. 结果通过 `engineUsed='agentic-resume'` 广播到原 SSE 流，对前端协议零新增。
+
+降级路径：父消息 metadata 缺失（老会话）或 `message.id` 为空（老前端）时，自动回退到原
+`handleQuery` / `sendQuery` 流程。
+
 ## API 端点
 
 | 端点 | 说明 |
@@ -146,6 +166,7 @@ FF_DISABLE_ALL=true                # 全部禁用（紧急回滚）
 | `GET /api/schema` | 获取 Schema 元数据 |
 | `GET /api/sse/stream` | 建立 SSE 连接（需 `?session_id=` 参数） |
 | `POST /api/sse/message` | 发送用户消息 |
+| `POST /api/sse/clarify-answer` | 澄清回答接续（批次 B，需 `parent_message_id`） |
 | `GET/POST /api/sessions` | 会话管理 |
 | `GET /api/history` | 查询历史 |
 | `GET/DELETE /api/memory` | 长期记忆管理 |
