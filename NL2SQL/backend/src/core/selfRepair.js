@@ -49,6 +49,11 @@ let statsCollectionJob = null;
  */
 let memoryMaintenanceJob = null;
 
+/**
+ * 【Phase 4 · 任务 C.4】死信队列重放任务引用
+ */
+let deadLetterReplayJob = null;
+
 // ============================================
 // 启动和停止
 // ============================================
@@ -120,7 +125,20 @@ function start() {
     }
   );
   logger.info('记忆维护任务已注册: 每天凌晨3点');
-  
+
+  // ----------------------------------------
+  // 【Phase 4 · 任务 C.4】死信队列重放/告警任务
+  // ----------------------------------------
+  // 每 6 小时扫描一次 memory_failed_queue 的 pending 记录并告警
+  deadLetterReplayJob = cron.schedule(
+    '0 */6 * * *',
+    replayDeadLetters,
+    {
+      name: 'dead-letter-replay'
+    }
+  );
+  logger.info('死信重放任务已注册: 每 6 小时');
+
   logger.info('自修复调度器启动完成');
 }
 
@@ -154,13 +172,41 @@ function stop() {
     memoryMaintenanceJob.stop();
     memoryMaintenanceJob = null;
   }
-  
+
+  // 【Phase 4 · 任务 C.4】停止死信重放任务
+  if (deadLetterReplayJob) {
+    deadLetterReplayJob.stop();
+    deadLetterReplayJob = null;
+  }
+
   logger.info('自修复调度器已停止');
 }
 
 // ============================================
 // 每日自检
 // ============================================
+
+/**
+ * 【Phase 4 · 任务 B.2】根据 error_code 分组统计生成可操作建议
+ * @param {Array<{code:string, count:number}>} errorCodeStats
+ */
+function generateErrorRecommendations(errorCodeStats) {
+  const adviceMap = {
+    SR_DB_NOT_READY:     '数据源未就绪,检查 SR_DATABASE_URL 与网络连通',
+    SR_DB_NOT_CONFIGURED:'SR_DB_ENABLED=false 或 URL 空,检查部署配置',
+    SR_EXEC_ERROR:       'SR 库执行错误,检查慢查询/权限/表缺失',
+    VALIDATION_ERROR:    'SQL 验证失败,检查白名单/语法/LIMIT',
+    RLS_REWRITE_FAILED:  'RLS 改写失败,用 sqlRewriter dry-run 采样定位',
+    LLM_ERROR:           'LLM 调用失败,检查 LLM_API_KEY/限流/超时',
+    PIPELINE_ERROR:      '管道异常(意图/生成/验证前置失败),查看最近 failed 记录的 error_message',
+    UNKNOWN:             '未分类错误,排查最近 failed 记录的 error_message'
+  };
+  return (errorCodeStats || []).map(e => ({
+    code: e.code,
+    count: e.count,
+    advice: adviceMap[e.code] || adviceMap.UNKNOWN
+  }));
+}
 
 /**
  * 执行每日自检
@@ -216,20 +262,20 @@ async function performDailyCheck() {
     try {
       const today = new Date().toISOString().split('T')[0];
       const queryStats = await database.queryOne(`
-        SELECT 
+        SELECT
           COUNT(*) as total,
           SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
           AVG(execution_time) as avg_time
-        FROM query_history 
+        FROM query_history
         WHERE date(created_at) = date(?)
       `, [today]);
-      
+
       report.checks.queries = {
         status: 'ok',
         today: queryStats
       };
-      
+
       // 检查失败率
       if (queryStats && queryStats.total > 0) {
         const failRate = queryStats.failed / queryStats.total;
@@ -238,17 +284,65 @@ async function performDailyCheck() {
           report.recommendations.push('建议检查LLM API状态和SQL生成逻辑');
         }
       }
-      
+
       // 检查慢查询
       if (queryStats && queryStats.avg_time > config.selfRepair.slowQueryThreshold) {
         report.issues.push(`平均查询时间偏慢: ${Math.round(queryStats.avg_time)}ms`);
         report.recommendations.push('建议优化查询性能或检查数据源状态');
       }
-      
+
+      // 【Phase 4 · 任务 B】Phase 3 审计字段深入分析
+      try {
+        const [errorCodeStats, rlsStats, fallbackStats] = await Promise.all([
+          database.query(
+            `SELECT COALESCE(error_code, 'UNKNOWN') AS code, COUNT(*) AS count
+               FROM query_history
+              WHERE status='failed' AND date(created_at) = date(?)
+              GROUP BY COALESCE(error_code, 'UNKNOWN')
+              ORDER BY count DESC`,
+            [today]
+          ),
+          database.queryOne(
+            `SELECT COUNT(CASE WHEN rls_applied IS NOT NULL AND rls_applied != '' THEN 1 END) AS rls_hit,
+                    COUNT(*) AS total
+               FROM query_history
+              WHERE date(created_at) = date(?)`,
+            [today]
+          ),
+          database.queryOne(
+            `SELECT COALESCE(SUM(fallback_used), 0) AS fallback_count, COUNT(*) AS total
+               FROM query_history
+              WHERE date(created_at) = date(?)`,
+            [today]
+          )
+        ]);
+
+        report.checks.queries.errorCodes    = errorCodeStats;
+        report.checks.queries.rlsStats      = rlsStats;
+        report.checks.queries.fallbackStats = fallbackStats;
+
+        if (Array.isArray(errorCodeStats) && errorCodeStats.length > 0) {
+          report.recommendations.push(...generateErrorRecommendations(errorCodeStats));
+        }
+
+        if (fallbackStats && fallbackStats.total > 0) {
+          const fbRate = fallbackStats.fallback_count / fallbackStats.total;
+          if (fbRate > 0.2) {
+            report.issues.push(`fallback 占比 ${(fbRate * 100).toFixed(1)}%（>20%）`);
+            report.recommendations.push({
+              code: 'FALLBACK_RATE_HIGH',
+              advice: 'agentic 路径失败率偏高,检查 agenticEngine 日志与 FF_AGENTIC_ENGINE 配置'
+            });
+          }
+        }
+      } catch (auditErr) {
+        logger.warn('[selfRepair] 审计字段分析失败:', auditErr.message);
+      }
+
     } catch (error) {
       report.checks.queries = { status: 'error', message: error.message };
     }
-    
+
     // ----------------------------------------
     // 检查4：活跃会话
     // ----------------------------------------
@@ -261,7 +355,7 @@ async function performDailyCheck() {
     } catch (error) {
       report.checks.connections = { status: 'error', message: error.message };
     }
-    
+
     // ----------------------------------------
     // 检查5：系统资源
     // ----------------------------------------
@@ -275,12 +369,35 @@ async function performDailyCheck() {
       },
       uptime: process.uptime()
     };
-    
+
     // 检查内存使用
     const memoryPercent = memoryUsage.heapUsed / memoryUsage.heapTotal;
     if (memoryPercent > 0.9) {
       report.issues.push(`内存使用率过高: ${(memoryPercent * 100).toFixed(1)}%`);
       report.recommendations.push('建议重启服务或优化内存使用');
+    }
+
+    // ----------------------------------------
+    // 【Phase 4 · 任务 B.3】死信队列健康扫描
+    // ----------------------------------------
+    try {
+      const deadLetter = await database.queryOne(
+        `SELECT COUNT(*) AS count FROM memory_failed_queue WHERE status='pending'`
+      );
+      report.checks.memoryDeadLetter = {
+        status: 'ok',
+        pending: deadLetter ? deadLetter.count : 0
+      };
+      if (deadLetter && deadLetter.count > 100) {
+        report.issues.push(`memory 死信队列待处理 ${deadLetter.count} 条（>100）`);
+        report.recommendations.push({
+          code: 'DEAD_LETTER_BACKLOG',
+          advice: '检查 memoryQueue 持续失败的原因(db 写入/longTermMemory 逻辑),或手工 REVIEW 死信'
+        });
+      }
+    } catch (deadErr) {
+      // 表不存在(未运行迁移)时不 fatal
+      report.checks.memoryDeadLetter = { status: 'warning', message: deadErr.message };
     }
     
     // ----------------------------------------
@@ -474,6 +591,38 @@ async function triggerMemoryMaintenance() {
 }
 
 // ============================================
+// 【Phase 4 · 任务 C.4】死信队列重放/告警
+// ============================================
+
+/**
+ * 扫描 memory_failed_queue pending 记录。
+ * 当前实现只做"人工审阅告警"(payload 仅含可序列化 meta,闭包无法重放)。
+ * 自动重放需要把操作固化为 type+args 描述,留 Phase 5 落地。
+ */
+async function replayDeadLetters() {
+  try {
+    const items = await database.listPendingMemoryFailed(20);
+    if (!items || items.length === 0) {
+      logger.debug('[DeadLetter] 无待处理记录');
+      return;
+    }
+    logger.warn('[DeadLetter] 待人工处理的死信记录', {
+      count: items.length,
+      sample: items.slice(0, 5).map(i => ({
+        id: i.id, type: i.operation_type, userId: i.user_id, error: i.last_error
+      }))
+    });
+  } catch (error) {
+    logger.error('[DeadLetter] 重放任务失败:', error.message);
+  }
+}
+
+async function triggerDeadLetterReplay() {
+  logger.info('手动触发死信重放...');
+  await replayDeadLetters();
+}
+
+// ============================================
 // 导出模块
 // ============================================
 
@@ -484,5 +633,8 @@ module.exports = {
   // 手动触发
   triggerDailyCheck,
   triggerSessionCleanup,
-  triggerMemoryMaintenance
+  triggerMemoryMaintenance,
+  // 【Phase 4 · 任务 B/C.4】新增
+  triggerDeadLetterReplay,
+  generateErrorRecommendations
 };

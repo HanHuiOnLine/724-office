@@ -5,7 +5,13 @@
   "main": "src/app.js",
   "scripts": {
     "dev": "nodemon src/app.js",
-    "start": "node src/app.js"
+    "start": "node src/app.js",
+    "test": "node test/run-all.js",
+    "test:smoke": "node test/run-all.js --smoke",
+    "test:phase1": "node test/run-all.js --phase=1",
+    "test:phase2": "node test/run-all.js --phase=2",
+    "test:phase3": "node test/run-all.js --phase=3",
+    "test:phase4": "node test/run-all.js --phase=4"
   },
   "dependencies": {
     "body-parser": "^1.20.2",

@@ -398,12 +398,21 @@ async function extractAndStorePreferences(userId, intent, originalQuery, options
       if (storageDecision.shouldStore) {
         memoryQueue.enqueueMemoryStore(
           () => storeQueryPattern(userId, intent, originalQuery),
-          { type: 'query_pattern', userId }
+          {
+            type: 'query_pattern',
+            userId,
+            meta: {
+              query: (originalQuery || '').slice(0, 200),
+              metrics: intent.metrics,
+              dimensions: intent.dimensions,
+              timestamp: Date.now()
+            }
+          }
         );
         logger.info('[长期记忆] 查询模式已入队（异步存储）', { userId });
       }
     }
-    
+
     // 5. 提取并存储指标偏好（仅在逻辑判断路径且决定存储时）
     // LLM 路径已在上面处理了偏好提取，无需重复存储 metric/dimension
     if (!llmAnalysis && storageDecision?.shouldStore) {
@@ -415,7 +424,15 @@ async function extractAndStorePreferences(userId, intent, originalQuery, options
         for (const metric of intent.metrics) {
           memoryQueue.enqueueMemoryStore(
             () => storeMetricPreference(userId, metric, originalQuery),
-            { type: 'metric_preference', userId }
+            {
+              type: 'metric_preference',
+              userId,
+              meta: {
+                metric,
+                query: (originalQuery || '').slice(0, 200),
+                timestamp: Date.now()
+              }
+            }
           );
         }
       }
@@ -429,7 +446,15 @@ async function extractAndStorePreferences(userId, intent, originalQuery, options
         for (const dimension of intent.dimensions) {
           memoryQueue.enqueueMemoryStore(
             () => storeDimensionPreference(userId, dimension, originalQuery),
-            { type: 'dimension_preference', userId }
+            {
+              type: 'dimension_preference',
+              userId,
+              meta: {
+                dimension,
+                query: (originalQuery || '').slice(0, 200),
+                timestamp: Date.now()
+              }
+            }
           );
         }
       }

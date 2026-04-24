@@ -208,6 +208,31 @@ CREATE TABLE IF NOT EXISTS system_logs (
 CREATE INDEX IF NOT EXISTS idx_system_logs_level ON system_logs(level);
 -- 为created_at创建索引，加速按时间查询
 CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at);
+
+-- ============================================
+-- 记忆失败队列表 (memory_failed_queue) 【Phase 4 · 任务 C.1】
+-- memoryQueue 重试 MAX_RETRIES 次仍失败的操作进入死信表,
+-- 便于运维观测和后续重放。
+-- ============================================
+CREATE TABLE IF NOT EXISTS memory_failed_queue (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- 操作类型：query_pattern / field_alias / metric_preference / dimension_preference
+  operation_type   TEXT NOT NULL,
+  user_id          TEXT,
+  -- 可序列化的元数据(不含闭包),用于事后排查
+  payload          TEXT NOT NULL,
+  last_error       TEXT,
+  -- memoryQueue 内部累计重试次数(MAX_RETRIES 以内)
+  retry_count      INTEGER DEFAULT 0,
+  -- 状态:pending(待处理) / retry(重试中) / reviewed(已人工处理) / archived(归档)
+  status           TEXT DEFAULT 'pending',
+  first_failed_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_tried_at    DATETIME,
+  updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_dead_status ON memory_failed_queue(status, retry_count);
+CREATE INDEX IF NOT EXISTS idx_memory_dead_user   ON memory_failed_queue(user_id);
 `;
 
 // ============================================
@@ -325,6 +350,33 @@ async function ensureQueryHistoryColumns() {
 }
 
 /**
+ * 【Phase 4 · 任务 C.1】幂等迁移:memory_failed_queue 表与索引
+ * 首次启动时 CREATE_TABLES_SQL 已建表;此函数保证升级路径下旧库也能补齐。
+ * 参照 ensureQueryHistoryColumns 的幂等风格:失败仅 error 日志,不阻断启动。
+ */
+async function ensureMemoryFailedQueueTable() {
+  try {
+    await run(`CREATE TABLE IF NOT EXISTS memory_failed_queue (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      operation_type   TEXT NOT NULL,
+      user_id          TEXT,
+      payload          TEXT NOT NULL,
+      last_error       TEXT,
+      retry_count      INTEGER DEFAULT 0,
+      status           TEXT DEFAULT 'pending',
+      first_failed_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_tried_at    DATETIME,
+      updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_memory_dead_status ON memory_failed_queue(status, retry_count)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_memory_dead_user   ON memory_failed_queue(user_id)`);
+    logger.debug('[迁移] memory_failed_queue 迁移完成');
+  } catch (e) {
+    logger.error('[迁移] memory_failed_queue 迁移失败:', e.message);
+  }
+}
+
+/**
  * 执行数据库迁移
  * 修复旧版本表结构问题
  */
@@ -393,6 +445,9 @@ async function runMigrations() {
 
     // 【Phase 3 · T3c】query_history 审计字段迁移(idempotent)
     await ensureQueryHistoryColumns();
+
+    // 【Phase 4 · 任务 C.1】memory_failed_queue 迁移(idempotent)
+    await ensureMemoryFailedQueueTable();
 
     logger.info('数据库迁移完成');
     
@@ -1089,6 +1144,89 @@ async function markQueryHistoryFailure(id, {
 }
 
 // ============================================
+// 【Phase 4 · 任务 C.1】memory_failed_queue 操作
+// ============================================
+
+/**
+ * 插入一条死信记录。调用方通常是 memoryQueue.executeOperation 在 MAX_RETRIES
+ * 耗尽后的兜底写入。payload 只保留可序列化字段(type/userId/meta),闭包丢弃。
+ */
+async function addMemoryFailedOperation({ operationType, userId, payload, lastError, retryCount }) {
+  try {
+    const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+    const lastErr = lastError ? String(lastError).slice(0, 2000) : null;
+    const result = await run(
+      `INSERT INTO memory_failed_queue
+         (operation_type, user_id, payload, last_error, retry_count, status, last_tried_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)`,
+      [
+        operationType || 'unknown',
+        userId || null,
+        payloadStr.slice(0, 10000),
+        lastErr,
+        typeof retryCount === 'number' ? retryCount : 0
+      ]
+    );
+    return result && result.lastID;
+  } catch (error) {
+    logger.error('[DB] 写入 memory_failed_queue 失败:', error.message);
+    return null;
+  }
+}
+
+/**
+ * 扫描待处理的死信记录。selfRepair 死信重放任务使用。
+ */
+async function listPendingMemoryFailed(limit = 50) {
+  try {
+    return await query(
+      `SELECT id, operation_type, user_id, payload, last_error, retry_count,
+              status, first_failed_at, last_tried_at
+         FROM memory_failed_queue
+        WHERE status = 'pending'
+        ORDER BY first_failed_at ASC
+        LIMIT ?`,
+      [limit]
+    );
+  } catch (error) {
+    logger.error('[DB] 读取 memory_failed_queue 失败:', error.message);
+    return [];
+  }
+}
+
+/**
+ * 更新死信记录状态(人工审阅 / 归档 / 重试失败再次标记)。
+ */
+async function updateMemoryFailedStatus(id, { status, retryCount, lastError }) {
+  if (!id) return;
+  try {
+    const updates = [];
+    const params = [];
+    if (status) {
+      updates.push('status = ?');
+      params.push(status);
+    }
+    if (typeof retryCount === 'number') {
+      updates.push('retry_count = ?');
+      params.push(retryCount);
+    }
+    if (lastError !== undefined) {
+      updates.push('last_error = ?');
+      params.push(lastError ? String(lastError).slice(0, 2000) : null);
+    }
+    updates.push('last_tried_at = CURRENT_TIMESTAMP');
+    updates.push('updated_at    = CURRENT_TIMESTAMP');
+    params.push(id);
+    await run(
+      `UPDATE memory_failed_queue SET ${updates.join(', ')} WHERE id = ?`,
+      params
+    );
+  } catch (error) {
+    logger.warn('[DB] 更新 memory_failed_queue 状态失败:', error.message);
+  }
+}
+
+// ============================================
 // 关闭数据库
 // ============================================
 
@@ -1251,6 +1389,11 @@ module.exports = {
   markQueryHistoryFailure,
   // 【Phase 3 · T3c】幂等迁移函数(供单测直接调用)
   ensureQueryHistoryColumns,
+  // 【Phase 4 · 任务 C.1】memory_failed_queue
+  ensureMemoryFailedQueueTable,
+  addMemoryFailedOperation,
+  listPendingMemoryFailed,
+  updateMemoryFailedStatus,
   // 关闭连接
   close
 };

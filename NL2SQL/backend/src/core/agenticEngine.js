@@ -27,6 +27,8 @@ const clarificationEngine = require('./clarificationEngine');
 const logger = require('../utils/logger');
 const config = require('./config');
 const featureFlags = require('../../config/feature-flags');
+// 【Phase 4 · 任务 E】审计写入依赖
+const database = require('./database');
 
 // ============================================
 // 配置常量
@@ -154,7 +156,7 @@ class AgenticNL2SQLEngine {
       }
       
       // 返回最终结果
-      return {
+      const finalResult = {
         success: sqlResult.success,
         type: 'sql_result',
         sql: sqlResult.sql,
@@ -165,7 +167,40 @@ class AgenticNL2SQLEngine {
         traceLog,
         duration: Date.now() - startTime
       };
-      
+
+      // 【Phase 4 · 任务 E】agentic 独立成功路径补 query_history 审计
+      // 失败分支(success:false)交给 sseHandler 的 legacy fallback 写入,避免双写
+      if (finalResult.success === true) {
+        try {
+          const historyId = await database.createQueryHistory({
+            sessionId: context.sessionId,
+            userId: context.userId || 'anonymous',
+            naturalQuery: userQuery,
+            userRole:      context.userRole,
+            tenantId:      context.tenantId,
+            requestSource: context.requestSource,
+            requestIp:     context.requestIp
+          });
+          if (historyId) {
+            await database.markQueryHistorySuccess(historyId, {
+              generatedSql:  sqlResult.sql,
+              executionTime: finalResult.duration,
+              rowCount:      0,                          // agentic 不执行 SQL,行数未知
+              result: {
+                selectedTables: sqlResult.selectedTables || [],
+                explanation:    (sqlResult.explanation || '').slice(0, 500)
+              },
+              fallbackUsed: false,                       // agentic 独立成功,不经过 fallback
+              rlsApplied:   context.rlsApplied
+            });
+          }
+        } catch (auditErr) {
+          logger.warn('[AgenticEngine] query_history 审计写入失败:', auditErr.message);
+        }
+      }
+
+      return finalResult;
+
     } catch (error) {
       logger.error('[AgenticEngine] 查询处理失败:', error);
       

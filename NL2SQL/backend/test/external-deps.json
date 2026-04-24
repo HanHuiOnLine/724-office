@@ -1,0 +1,10 @@
+{
+  "requiresLlm": [
+    "phase2/test-regression-complex.js"
+  ],
+  "requiresSrDb": [
+    "phase1/test-executeQuery.js",
+    "phase2/test-regression-complex.js"
+  ],
+  "notes": "opt-in 黑名单:列入此处的脚本在 --smoke 模式下自动跳过,或未设置对应环境变量时跳过。requiresLlm 对应 LLM_API_KEY,requiresSrDb 对应 SR_DATABASE_URL_TEST。"
+}
