@@ -74,7 +74,11 @@
       "Bash(node -c src/core/agenticEngine.js)",
       "Bash(node -c src/core/sseHandler.js)",
       "Bash(node -c src/core/database.js)",
-      "Bash(node -c src/core/routes.js)"
+      "Bash(node -c src/core/routes.js)",
+      "Bash(node test/phase3/schema-discovery-searchquery.test.js)",
+      "Bash(node test/phase3/handleQuery-clarify-fallback.test.js)",
+      "Bash(node test/phase2/test-regression-complex.js)",
+      "Bash(awk '{print $5}')"
     ]
   }
 }

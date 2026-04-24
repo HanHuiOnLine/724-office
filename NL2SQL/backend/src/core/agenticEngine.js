@@ -84,7 +84,9 @@ class AgenticNL2SQLEngine {
       traceLog.push({ phase: 'planning', result: plan });
       
       // Schema发现（使用工具探索）
-      const schemaContext = await this.schemaDiscoveryPhase(plan, context);
+      // 批次 C:把 userQuery 传入,让 schemaDiscoveryPhase 能拼接原文 + physicalHints,
+      // 避免 typeid / int_key* 等物理 token 丢失
+      const schemaContext = await this.schemaDiscoveryPhase(userQuery, plan, context);
       traceLog.push({ phase: 'schema_discovery', result: schemaContext });
       
       // ============================================
@@ -183,10 +185,14 @@ class AgenticNL2SQLEngine {
   
   /**
    * 规划阶段
+   *
+   * 批次 C:prompt 追加第 5 条「物理字段/编码」要求,返回 JSON 新增 physicalHints 数组,
+   * 后续在 schemaDiscoveryPhase 拼接 searchQuery,避免 typeid/int_keyN 等物理 token 在
+   * 向量检索阶段就丢失。解析失败时兜底 physicalHints = []。
    */
   async planningPhase(userQuery, context) {
     logger.debug('[AgenticEngine] Phase 1: Planning');
-    
+
     const planningPrompt = `分析以下查询，制定执行计划：
 
 查询: "${userQuery}"
@@ -196,6 +202,8 @@ class AgenticNL2SQLEngine {
 2. 涉及哪些筛选条件？
 3. 需要哪些聚合或计算？
 4. 潜在的风险点（如歧义、缺失信息）
+5. 物理字段/编码：列出查询中出现的物理字段名或数字编码
+   (如 typeid=1743、int_key1、int_key5、game_id=30)
 
 返回JSON格式：
 {
@@ -203,57 +211,101 @@ class AgenticNL2SQLEngine {
   "filters": [{"field": "game_id", "value": "67"}],
   "aggregations": ["累计充值"],
   "risks": ["老平台需要确认数据源"],
+  "physicalHints": ["typeid=1743", "int_key5", "game_id=30"],
   "estimatedComplexity": "high"
 }`;
-    
+
     try {
       const response = await llmService.simpleChat('', planningPrompt);
       const jsonMatch = response.match(/\{[\s\S]*\}/);
-      
+
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+        const parsed = JSON.parse(jsonMatch[0]);
+        // physicalHints 兜底:LLM 可能不返回该字段,保持下游逻辑健壮
+        if (!Array.isArray(parsed.physicalHints)) {
+          parsed.physicalHints = [];
+        }
+        return parsed;
       }
     } catch (error) {
       logger.warn('[AgenticEngine] 规划解析失败，使用默认计划');
     }
-    
+
     // 返回默认计划
     return {
       entities: [],
       filters: [],
       aggregations: [],
       risks: [],
+      physicalHints: [],
       estimatedComplexity: 'medium'
     };
   }
   
   /**
    * Schema发现阶段
+   *
+   * 批次 C:签名扩展为 (userQuery, plan, context),searchQuery 合入原 query + filters +
+   * aggregations + physicalHints,避免 typeid / int_key* 等物理 token 丢失。
+   * SCHEMA_SEARCH_INCLUDE_RAW=false 时回退到旧行为(仅 entities)。
    */
-  async schemaDiscoveryPhase(plan, context) {
+  async schemaDiscoveryPhase(userQuery, plan, context) {
     logger.debug('[AgenticEngine] Phase 1: Schema Discovery');
-    
-    // 使用工具循环探索Schema
-    const entities = plan.entities || [];
-    const searchQuery = entities.join(' ');
-    
+
+    // 老调用点兼容:第一个参数是 plan 对象(非字符串) → 降级到旧签名
+    // 旧签名:schemaDiscoveryPhase(plan, context)
+    if (userQuery && typeof userQuery === 'object') {
+      context = plan || {};
+      plan = userQuery;
+      userQuery = '';
+    }
+
+    const flagOn = process.env.SCHEMA_SEARCH_INCLUDE_RAW !== 'false';
+    const entities = (plan && plan.entities) || [];
+    let searchQuery;
+
+    if (flagOn) {
+      const filterParts = ((plan && plan.filters) || [])
+        .map(f => {
+          if (!f) return '';
+          if (typeof f === 'string') return f;
+          const field = f.field ?? '';
+          const value = f.value ?? '';
+          if (!field && value === '') return '';
+          return `${field}=${value}`;
+        })
+        .filter(Boolean);
+
+      const parts = [
+        userQuery || '',
+        ...entities,
+        ...filterParts,
+        ...((plan && plan.aggregations) || []),
+        ...((plan && plan.physicalHints) || [])
+      ].filter(p => typeof p === 'string' && p.trim().length > 0);
+
+      searchQuery = parts.join(' ').trim();
+    } else {
+      searchQuery = entities.join(' ');
+    }
+
     // 获取Level 1索引
     const level1Index = schemaTools.getLevel1Index();
-    
+
     // 如果有工具循环功能，使用工具探索
     if (featureFlags.isEnabled('TOOL_LOOP_MODE')) {
       const toolResult = await toolLoop.executeToolLoop(searchQuery, {
-        history: context.history || [],
-        userId: context.userId,
+        history: (context && context.history) || [],
+        userId: context && context.userId,
         useLevel1Index: true
       });
-      
+
       return {
         level1Index,
         toolExploration: toolResult
       };
     }
-    
+
     // 否则使用传统方式
     return {
       level1Index,

@@ -284,6 +284,40 @@ async function handleQuery(sessionId, query, context = {}) {
     return null;
   }
 
+  // ============================================
+  // 批次 C:澄清回答自动路由兜底(老前端兼容)
+  // ============================================
+  // 条件:
+  //   1. 开关 FF_HANDLE_QUERY_CLARIFY_FALLBACK 未显式关闭(默认启用)
+  //   2. context 没显式标记 skipClarifyFallback(内部从 handleClarifyAnswer 降级过来时会传,避免循环)
+  //   3. query 较短(<30 字符),老前端点选项时 option 文本通常很短
+  //   4. 会话最新 assistant 消息是 type==='clarification' 且 metadata.{decomposition,originalQuery} 完整
+  // 命中后直接调 handleClarifyAnswer,避免第二轮 query 脱离原需求
+  const clarifyFallbackOn = process.env.FF_HANDLE_QUERY_CLARIFY_FALLBACK !== 'false';
+  if (clarifyFallbackOn && !context.skipClarifyFallback && query.length < 30) {
+    try {
+      const latest = await database.getLatestAssistantMessage(sessionId);
+      if (latest &&
+          (latest.type === 'clarification' || latest.message_type === 'clarification') &&
+          latest.metadata &&
+          latest.metadata.decomposition &&
+          latest.metadata.originalQuery) {
+        logger.info('[handleQuery] 检测到短 query + 未回答的澄清,自动路由 handleClarifyAnswer', {
+          sessionId,
+          parentMessageId: latest.id,
+          queryPreview: query.slice(0, 40)
+        });
+        return handleClarifyAnswer(sessionId, latest.id, query, context);
+      }
+    } catch (e) {
+      // 兜底失败不阻断主流程,继续走原始 handleQuery 逻辑
+      logger.warn('[handleQuery] 澄清兜底检测异常,按常规流程继续', {
+        sessionId,
+        err: e.message
+      });
+    }
+  }
+
   // 标记为正在处理
   connList.forEach(c => c.isProcessing = true);
 
@@ -514,7 +548,8 @@ async function handleClarifyAnswer(sessionId, parentMessageId, userAnswer, conte
       hasParent: !!parent,
       hasMetadata: !!(parent && parent.metadata)
     });
-    return handleQuery(sessionId, String(userAnswer), context);
+    // 批次 C:降级时禁用 handleQuery 的澄清自动路由兜底,避免循环
+    return handleQuery(sessionId, String(userAnswer), { ...context, skipClarifyFallback: true });
   }
 
   // 正在处理互斥(复用 handleQuery 的简单锁模型)

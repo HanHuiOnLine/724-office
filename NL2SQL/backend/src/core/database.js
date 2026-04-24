@@ -727,6 +727,32 @@ async function getMessage(id) {
 }
 
 /**
+ * 获取会话最新一条 assistant 消息(批次 C 新增)
+ * 用于 handleQuery 澄清兜底:短 query 进来时判断前一条是否是未回答的 clarification
+ *
+ * @param {string} sessionId - 会话 id
+ * @returns {Promise<Object|null>} 消息对象;metadata 字段已自动 JSON.parse;不存在返回 null
+ */
+async function getLatestAssistantMessage(sessionId) {
+  if (!sessionId) return null;
+  const sql = `
+    SELECT * FROM messages
+    WHERE session_id = ? AND role = 'assistant'
+    ORDER BY id DESC
+    LIMIT 1
+  `;
+  const row = await queryOne(sql, [sessionId]);
+  if (!row) return null;
+  return {
+    ...row,
+    message_type: row.type,
+    metadata: row.metadata ? (() => {
+      try { return JSON.parse(row.metadata); } catch (_) { return null; }
+    })() : null
+  };
+}
+
+/**
  * 获取会话的消息历史
  * @param {string} sessionId - 会话ID
  * @param {number} limit - 返回消息数量限制
@@ -1207,6 +1233,7 @@ module.exports = {
   // 消息操作
   addMessage,
   getMessage,
+  getLatestAssistantMessage,
   getSessionMessages,
   // 长期记忆操作
   addUserPreference,
