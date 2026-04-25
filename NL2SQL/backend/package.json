@@ -11,7 +11,8 @@
     "test:phase1": "node test/run-all.js --phase=1",
     "test:phase2": "node test/run-all.js --phase=2",
     "test:phase3": "node test/run-all.js --phase=3",
-    "test:phase4": "node test/run-all.js --phase=4"
+    "test:phase4": "node test/run-all.js --phase=4",
+    "test:phase-data": "node test/run-all.js --phase=data"
   },
   "dependencies": {
     "body-parser": "^1.20.2",

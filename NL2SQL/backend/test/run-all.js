@@ -2,10 +2,11 @@
  * Phase 4 · 任务 D.2 测试聚合 runner
  *
  * 用法：
- *   node test/run-all.js              # 跑全部(Phase 1-4)
+ *   node test/run-all.js              # 跑全部(Phase 1-4 + phase-data)
  *   node test/run-all.js --smoke      # 跳过需外部依赖的脚本
  *   node test/run-all.js --phase=1    # 只跑 phase1
  *   node test/run-all.js --phase=4
+ *   node test/run-all.js --phase=data # 只跑 phase-data(D5 新增)
  *
  * 退出码：0=全部通过或无可跑用例;1=存在失败。
  * 依赖:零第三方,原生 `child_process.fork` 派生每个脚本。
@@ -51,7 +52,10 @@ function shouldSkip(relPath) {
 
 // ---------------- 脚本发现 ----------------
 function discoverScripts() {
-  const phases = PHASE ? [`phase${PHASE}`] : ['phase1', 'phase2', 'phase3', 'phase4'];
+  // D5:phase-data 加入默认发现路径,smoke 也会扫到
+  const phases = PHASE
+    ? [`phase${PHASE === 'data' ? '-data' : PHASE}`]
+    : ['phase1', 'phase2', 'phase3', 'phase4', 'phase-data'];
   const scripts = [];
 
   for (const phase of phases) {
