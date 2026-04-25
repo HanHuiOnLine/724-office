@@ -458,7 +458,28 @@ async function persistAgenticMessages(sessionId, query, tagged, options = {}) {
       if (message && message.id != null) {
         tagged.message_id = message.id;
       }
+    } else if (tagged.type === 'result') {
+      // 批次 D4:agentic 主路径与 resume 路径产出真实数据,
+      // metadata 记录 sql/data/selectedTables/explanation/executionTime/engineUsed
+      // 用于历史回放、审计核对与前端表格渲染
+      await database.addMessage(
+        sessionId,
+        'assistant',
+        tagged.explanation || '查询完成',
+        'result',
+        {
+          sql: tagged.sql,
+          selectedTables: tagged.selectedTables,
+          explanation: tagged.explanation,
+          data: tagged.data,
+          executionTime: tagged.executionTime,
+          engineUsed: tagged.engineUsed,
+          verificationWarning: tagged.verificationWarning
+        }
+      );
     } else if (tagged.type === 'sql_result') {
+      // 兼容老会话回放:批次 B 期间引擎短暂返回过 sql_result,
+      // 新链路不会再走到这里,但保留写入分支以防极端兜底情况下契约回退
       await database.addMessage(
         sessionId,
         'assistant',

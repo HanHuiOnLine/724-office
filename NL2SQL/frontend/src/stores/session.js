@@ -271,6 +271,11 @@ export const useSessionStore = defineStore('session', () => {
           const content = data.data.message
             || data.data.explanation
             || (data.data.sql ? '查询已生成,请查看下方 SQL' : '（空响应)')
+          // 批次 D4:识别空结果(result.data.rows 为空数组),供 UI 展示占位文案
+          // sql_result 是老会话契约,这里同时兼容以便兜底分支也能正确显示
+          const isResultType = data.data.type === 'result' || data.data.type === 'sql_result'
+          const rows = data.data.data?.rows
+          const emptyResult = isResultType && Array.isArray(rows) && rows.length === 0
           addMessage({
             role: 'assistant',
             content,
@@ -278,7 +283,10 @@ export const useSessionStore = defineStore('session', () => {
             metadata: {
               sql: data.data.sql,
               data: data.data.data,
-              verificationWarning: data.data.verificationWarning
+              verificationWarning: data.data.verificationWarning,
+              executionTime: data.data.executionTime,
+              engineUsed: data.data.engineUsed,
+              emptyResult
             }
           })
         }

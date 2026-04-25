@@ -57,7 +57,11 @@
             </div>
             
             <!-- 数据表格 -->
-            <div v-if="message.metadata?.data" class="data-table">
+            <div v-if="message.metadata?.emptyResult" class="empty-result">
+              <el-icon><InfoFilled /></el-icon>
+              <span>查询无结果</span>
+            </div>
+            <div v-else-if="message.metadata?.data" class="data-table">
               <el-table
                 :data="message.metadata.data.rows"
                 border
@@ -72,6 +76,9 @@
                   show-overflow-tooltip
                 />
               </el-table>
+              <div v-if="message.metadata.data.truncated" class="data-truncated-hint">
+                结果较大,已截断显示前 {{ message.metadata.data.rowCount }} 行
+              </div>
             </div>
 
             <!-- 澄清选项 -->
@@ -162,7 +169,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 // 从Vue Router导入路由相关API
 import { useRoute } from 'vue-router'
 // 导入Element Plus图标
-import { ChatDotRound, UserFilled, Promotion, CopyDocument, Loading, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { ChatDotRound, UserFilled, Promotion, CopyDocument, Loading, ArrowUp, ArrowDown, InfoFilled } from '@element-plus/icons-vue'
 // 导入Element Plus消息组件
 import { ElMessage } from 'element-plus'
 // 导入会话状态管理
@@ -580,6 +587,29 @@ watch(isProcessing, (newVal) => {
 /* 数据表格 */
 .data-table {
   margin-top: 12px;
+}
+
+.data-truncated-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.empty-result {
+  margin-top: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #909399;
+  background-color: #fafafa;
+  border: 1px dashed #e4e7ed;
+  border-radius: 6px;
+}
+
+.empty-result .el-icon {
+  font-size: 16px;
 }
 
 .clarification-block {

@@ -992,6 +992,8 @@ ${schemaDetail}
       const verification = await this.verificationPhase(sqlResult);
       traceLog.push({ phase: 'verification', result: verification });
 
+      let recoveryUsed = false;
+
       if (!verification.success) {
         // 详细日志便于定位:是表不存在/语法/禁用关键字哪一项失败
         const failedChecks = (verification.checks || []).filter(c => !c.passed);
@@ -1013,6 +1015,7 @@ ${schemaDetail}
           context
         );
         traceLog.push({ phase: 'recovery', result: { success: sqlResult.success } });
+        recoveryUsed = true;
 
         // 恢复未产出合法 SQL 且原 SQL 基本语法完整 → 降级为 "可用 + 警告"
         // 避免前端因 sql=null 显示空白,让用户能看到 SQL 并人工核对
@@ -1048,19 +1051,138 @@ ${schemaDetail}
         };
       }
 
-      return {
-        success: sqlResult.success,
-        type: 'sql_result',
+      // ============================================
+      // 【批次 D3】Execution: 验证通过后执行 SQL,获取真实数据(复用 D2 的 executionPhase)
+      // ============================================
+      let execResult = await this.executionPhase(sqlResult.sql, context);
+      traceLog.push({
+        phase: 'execution',
+        result: {
+          success: execResult.success,
+          executionTime: execResult.executionTime,
+          rowCount: execResult.data && execResult.data.rowCount,
+          errorCode: execResult.errorCode || null
+        }
+      });
+
+      // 执行失败 + 之前未走过 recoveryPhase → 给一次恢复机会再重试
+      if (!execResult.success && !recoveryUsed) {
+        logger.warn('[AgenticEngine] resumeFromClarification SQL 执行失败,触发 recoveryPhase 后重试', {
+          error: execResult.error,
+          errorCode: execResult.errorCode
+        });
+        const recovered = await this.recoveryPhase(
+          execResult.error,
+          updatedDecomposition,
+          schemaContext,
+          context
+        );
+        traceLog.push({ phase: 'recovery', result: recovered });
+        recoveryUsed = true;
+
+        if (recovered && recovered.success && recovered.sql) {
+          sqlResult = recovered;
+          execResult = await this.executionPhase(sqlResult.sql, context);
+          traceLog.push({
+            phase: 'execution_retry',
+            result: {
+              success: execResult.success,
+              executionTime: execResult.executionTime,
+              rowCount: execResult.data && execResult.data.rowCount,
+              errorCode: execResult.errorCode || null
+            }
+          });
+        }
+      }
+
+      // 执行成功:升级为 type='result' + 真实 data
+      if (execResult.success) {
+        const finalResult = {
+          success: true,
+          type: 'result',
+          sql: sqlResult.sql,
+          explanation: sqlResult.explanation,
+          selectedTables: sqlResult.selectedTables,
+          data: execResult.data,
+          executionTime: execResult.executionTime,
+          decomposition: updatedDecomposition,
+          verification,
+          verificationWarning: sqlResult.verificationWarning,
+          traceLog,
+          duration: Date.now() - startTime,
+          resumed: true
+        };
+
+        // 【批次 D3】审计写入(成功):真实 executionTime / rowCount + 摘要
+        try {
+          const historyId = await database.createQueryHistory({
+            sessionId: context.sessionId,
+            userId: context.userId || 'anonymous',
+            naturalQuery: originalQuery,
+            userRole:      context.userRole,
+            tenantId:      context.tenantId,
+            requestSource: context.requestSource,
+            requestIp:     context.requestIp
+          });
+          if (historyId) {
+            await database.markQueryHistorySuccess(historyId, {
+              generatedSql:  sqlResult.sql,
+              executionTime: execResult.executionTime,
+              rowCount:      (execResult.data && execResult.data.rowCount) || 0,
+              result:        summarizeResultForAudit(execResult.data),
+              fallbackUsed:  false,
+              rlsApplied:    context.rlsApplied
+            });
+          }
+        } catch (auditErr) {
+          logger.warn('[AgenticEngine] resumeFromClarification query_history 审计写入失败:', auditErr.message);
+        }
+
+        return finalResult;
+      }
+
+      // 执行最终失败:返回 type='error' 并写失败审计(真实 executionTime / errorCode)
+      const failResult = {
+        success: false,
+        type: 'error',
+        error: execResult.error || '执行失败',
+        errorCode: execResult.errorCode || null,
         sql: sqlResult.sql,
         explanation: sqlResult.explanation,
         selectedTables: sqlResult.selectedTables,
         decomposition: updatedDecomposition,
         verification,
-        verificationWarning: sqlResult.verificationWarning,
+        executionTime: execResult.executionTime,
         traceLog,
         duration: Date.now() - startTime,
         resumed: true
       };
+
+      try {
+        const historyId = await database.createQueryHistory({
+          sessionId: context.sessionId,
+          userId: context.userId || 'anonymous',
+          naturalQuery: originalQuery,
+          userRole:      context.userRole,
+          tenantId:      context.tenantId,
+          requestSource: context.requestSource,
+          requestIp:     context.requestIp
+        });
+        if (historyId) {
+          await database.markQueryHistoryFailure(historyId, {
+            generatedSql:  sqlResult.sql,
+            executionTime: execResult.executionTime,
+            errorMessage:  execResult.error || '执行失败',
+            errorCode:     execResult.errorCode || null,
+            fallbackUsed:  false,
+            rlsApplied:    context.rlsApplied
+          });
+        }
+      } catch (auditErr) {
+        logger.warn('[AgenticEngine] resumeFromClarification query_history 失败审计写入失败:', auditErr.message);
+      }
+
+      return failResult;
     } catch (error) {
       logger.error('[AgenticEngine] resumeFromClarification 失败:', error);
       return {
