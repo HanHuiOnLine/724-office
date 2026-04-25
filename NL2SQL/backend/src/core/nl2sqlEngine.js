@@ -35,6 +35,7 @@ const entityResolver = require('./entityResolver');
 const sqlGenerator = require('./sqlGenerator');
 const sqlExecutor = require('./sqlExecutor');
 const resultFormatter = require('./resultFormatter');
+const { summarizeResultForAudit } = require('./auditHelper');
 
 let featureFlags = null;
 try {
@@ -563,12 +564,8 @@ async function processQuery(userQuery, sessionId, onProgress = null, userId = nu
         generatedSql: sqlResult.sql,
         executionTime: queryResult.executionTime,
         rowCount: queryResult.data?.rowCount || 0,
-        result: {
-          columns: queryResult.data?.columns,
-          sampleRows: Array.isArray(queryResult.data?.rows)
-            ? queryResult.data.rows.slice(0, 20)
-            : []
-        },
+        // 【批次 D1】审计存摘要（不再落业务行）
+        result: summarizeResultForAudit(queryResult.data),
         fallbackUsed: !!(context && context.fallbackUsed),
         rlsApplied:    context && context.rlsApplied
       });

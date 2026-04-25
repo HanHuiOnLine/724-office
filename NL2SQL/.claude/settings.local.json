@@ -112,7 +112,8 @@
       "Bash(node test/phase4/test-memoryQueue-deadletter.js)",
       "Bash(node test/phase4/test-agentic-audit.js)",
       "Bash(node test/run-all.js --phase=4)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(npm run *)"
     ]
   }
 }
