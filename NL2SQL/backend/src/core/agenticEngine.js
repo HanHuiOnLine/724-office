@@ -29,6 +29,9 @@ const config = require('./config');
 const featureFlags = require('../../config/feature-flags');
 // 【Phase 4 · 任务 E】审计写入依赖
 const database = require('./database');
+// 【批次 D2】真实数据执行链路依赖
+const sqlExecutor = require('./sqlExecutor');
+const { summarizeResultForAudit } = require('./auditHelper');
 
 // ============================================
 // 配置常量
@@ -141,36 +144,97 @@ class AgenticNL2SQLEngine {
       sendProgress(onProgress, 'verifying', '验证SQL...');
       const verification = await this.verificationPhase(sqlResult);
       traceLog.push({ phase: 'verification', result: verification });
-      
+
       // 如果验证失败，尝试恢复
+      let recoveryUsed = false;
       if (!verification.success) {
         logger.warn('[AgenticEngine] SQL验证失败，尝试恢复');
-        
+
         sqlResult = await this.recoveryPhase(
-          verification.error, 
-          decomposition, 
+          verification.error,
+          decomposition,
           schemaContext,
           context
         );
         traceLog.push({ phase: 'recovery', result: sqlResult });
+        recoveryUsed = true;
       }
-      
-      // 返回最终结果
-      const finalResult = {
-        success: sqlResult.success,
-        type: 'sql_result',
-        sql: sqlResult.sql,
-        explanation: sqlResult.explanation,
-        selectedTables: sqlResult.selectedTables,
-        decomposition,
-        verification,
-        traceLog,
-        duration: Date.now() - startTime
-      };
 
-      // 【Phase 4 · 任务 E】agentic 独立成功路径补 query_history 审计
-      // 失败分支(success:false)交给 sseHandler 的 legacy fallback 写入,避免双写
-      if (finalResult.success === true) {
+      // 生成/恢复都失败时,直接退化为 error,不进入执行
+      if (!sqlResult || !sqlResult.success || !sqlResult.sql) {
+        return {
+          success: false,
+          type: 'error',
+          error: (sqlResult && sqlResult.error) || 'SQL生成失败',
+          decomposition,
+          verification,
+          traceLog,
+          duration: Date.now() - startTime
+        };
+      }
+
+      // ============================================
+      // 【批次 D2】Execution: 验证通过后执行 SQL,获取真实数据
+      // ============================================
+      sendProgress(onProgress, 'executing', '执行SQL...');
+      let execResult = await this.executionPhase(sqlResult.sql, context);
+      traceLog.push({
+        phase: 'execution',
+        result: {
+          success: execResult.success,
+          executionTime: execResult.executionTime,
+          rowCount: execResult.data && execResult.data.rowCount,
+          errorCode: execResult.errorCode || null
+        }
+      });
+
+      // 执行失败 + 之前未走过 recoveryPhase → 给一次恢复机会再重试
+      if (!execResult.success && !recoveryUsed) {
+        logger.warn('[AgenticEngine] SQL执行失败,触发 recoveryPhase 后重试', {
+          error: execResult.error,
+          errorCode: execResult.errorCode
+        });
+        const recovered = await this.recoveryPhase(
+          execResult.error,
+          decomposition,
+          schemaContext,
+          context
+        );
+        traceLog.push({ phase: 'recovery', result: recovered });
+        recoveryUsed = true;
+
+        if (recovered && recovered.success && recovered.sql) {
+          sqlResult = recovered;
+          execResult = await this.executionPhase(sqlResult.sql, context);
+          traceLog.push({
+            phase: 'execution_retry',
+            result: {
+              success: execResult.success,
+              executionTime: execResult.executionTime,
+              rowCount: execResult.data && execResult.data.rowCount,
+              errorCode: execResult.errorCode || null
+            }
+          });
+        }
+      }
+
+      // 执行成功:升级为 type='result' + 真实 data
+      if (execResult.success) {
+        const finalResult = {
+          success: true,
+          type: 'result',
+          sql: sqlResult.sql,
+          explanation: sqlResult.explanation,
+          selectedTables: sqlResult.selectedTables,
+          data: execResult.data,
+          executionTime: execResult.executionTime,
+          decomposition,
+          verification,
+          traceLog,
+          duration: Date.now() - startTime
+        };
+
+        // 【批次 D2】审计写入(成功):真实 executionTime / rowCount + 摘要
         try {
           const historyId = await database.createQueryHistory({
             sessionId: context.sessionId,
@@ -184,22 +248,61 @@ class AgenticNL2SQLEngine {
           if (historyId) {
             await database.markQueryHistorySuccess(historyId, {
               generatedSql:  sqlResult.sql,
-              executionTime: finalResult.duration,
-              rowCount:      0,                          // agentic 不执行 SQL,行数未知
-              result: {
-                selectedTables: sqlResult.selectedTables || [],
-                explanation:    (sqlResult.explanation || '').slice(0, 500)
-              },
-              fallbackUsed: false,                       // agentic 独立成功,不经过 fallback
-              rlsApplied:   context.rlsApplied
+              executionTime: execResult.executionTime,
+              rowCount:      (execResult.data && execResult.data.rowCount) || 0,
+              result:        summarizeResultForAudit(execResult.data),
+              fallbackUsed:  false,
+              rlsApplied:    context.rlsApplied
             });
           }
         } catch (auditErr) {
           logger.warn('[AgenticEngine] query_history 审计写入失败:', auditErr.message);
         }
+
+        return finalResult;
       }
 
-      return finalResult;
+      // 执行最终失败:返回 type='error' 并写失败审计(真实 executionTime / errorCode)
+      const failResult = {
+        success: false,
+        type: 'error',
+        error: execResult.error || '执行失败',
+        errorCode: execResult.errorCode || null,
+        sql: sqlResult.sql,
+        explanation: sqlResult.explanation,
+        selectedTables: sqlResult.selectedTables,
+        decomposition,
+        verification,
+        executionTime: execResult.executionTime,
+        traceLog,
+        duration: Date.now() - startTime
+      };
+
+      try {
+        const historyId = await database.createQueryHistory({
+          sessionId: context.sessionId,
+          userId: context.userId || 'anonymous',
+          naturalQuery: userQuery,
+          userRole:      context.userRole,
+          tenantId:      context.tenantId,
+          requestSource: context.requestSource,
+          requestIp:     context.requestIp
+        });
+        if (historyId) {
+          await database.markQueryHistoryFailure(historyId, {
+            generatedSql:  sqlResult.sql,
+            executionTime: execResult.executionTime,
+            errorMessage:  execResult.error || '执行失败',
+            errorCode:     execResult.errorCode || null,
+            fallbackUsed:  false,
+            rlsApplied:    context.rlsApplied
+          });
+        }
+      } catch (auditErr) {
+        logger.warn('[AgenticEngine] query_history 失败审计写入失败:', auditErr.message);
+      }
+
+      return failResult;
 
     } catch (error) {
       logger.error('[AgenticEngine] 查询处理失败:', error);
@@ -594,6 +697,49 @@ ${schemaDetail}
     };
   }
   
+  /**
+   * 【批次 D2】执行阶段:验证通过的 SQL 走 sqlExecutor 真实执行,返回真实数据。
+   *
+   * - 统一经由 sqlExecutor.executeQuery,绝不绕开执行器直连 mysql,
+   *   保证 RLS / 脱敏 / LIMIT / DRY_RUN / 超时 等链路与 legacy 完全一致。
+   * - DRY_RUN 模式下 sqlExecutor 会返回 success:true + rows:[] + dryRun:true,
+   *   本函数透传,既有行为不回退。
+   * - 模块内复用:D3 的 resumeFromClarification 也将复用此函数。
+   *
+   * @param {string} finalSql - generationPhase 产出的最终 SQL
+   * @param {Object} ctx - context (sessionId/userId 等;当前不直接使用,
+   *                       仅为 D3 复用预留接口语义)
+   * @returns {Promise<{success:boolean, data?:Object, executionTime:number,
+   *                    error?:string, errorCode?:string, sql?:string}>}
+   */
+  async executionPhase(finalSql, ctx) {
+    logger.debug('[AgenticEngine] Phase 4: Execution');
+
+    if (!finalSql || typeof finalSql !== 'string') {
+      return {
+        success: false,
+        error: '执行入参非法:finalSql 为空',
+        errorCode: 'EXEC_INVALID_INPUT',
+        executionTime: 0
+      };
+    }
+
+    // 1) 二次校验(白名单 + LIMIT + 仅 SELECT/WITH)
+    const validation = sqlExecutor.validateSQL(finalSql);
+    if (!validation.valid) {
+      return {
+        success: false,
+        error: validation.error || 'SQL校验失败',
+        errorCode: 'SQL_VALIDATION_FAILED',
+        executionTime: 0,
+        sql: finalSql
+      };
+    }
+
+    // 2) 真实执行(含 RLS/脱敏/LIMIT/DRY_RUN)
+    return await sqlExecutor.executeQuery(finalSql);
+  }
+
   /**
    * 验证阶段
    */
