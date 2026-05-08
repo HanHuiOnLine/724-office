@@ -20,6 +20,8 @@ const database = require('./database');
 const nl2sqlEngine = require('./nl2sqlEngine');
 // 导入Agentic引擎(Phase 3 · T1)
 const agenticEngine = require('./agenticEngine');
+// 导入 Agent SDK 引擎(批次 1)
+const agentSdkEngine = require('./agentSdkEngine');
 // 导入功能开关(Phase 3 · T1)
 const featureFlags = require('../../config/feature-flags');
 // 导入请求上下文工具(Phase 3 · T1)
@@ -325,6 +327,7 @@ async function handleQuery(sessionId, query, context = {}) {
     broadcastToSession(sessionId, { type: 'progress', data: progress });
   };
 
+  const useAgentSdk = featureFlags.useAgentSdk(context.userId);
   const useAgentic = featureFlags.isEnabled('AGENTIC_ENGINE');
   const autoFallback = featureFlags.isEnabled('AGENTIC_AUTO_FALLBACK');
 
@@ -339,8 +342,46 @@ async function handleQuery(sessionId, query, context = {}) {
       data: { message: '开始处理查询...' }
     });
 
-    if (useAgentic) {
-      engineUsed = 'agentic';
+    // ============================================
+    // 批次 1: SDK 引擎(优先级最高)
+    // 失败 → 降级到 agentic(若启用)或 legacy
+    // FF_AGENTIC_AUTO_FALLBACK=false 时直接抛 error 到前端,便于排障
+    // ============================================
+    if (useAgentSdk) {
+      engineUsed = 'agent-sdk';
+      try {
+        result = await agentSdkEngine.runQuery(
+          query,
+          { sessionId, ...context },
+          onProgress
+        );
+        if (!result || result.success === false) {
+          if (!autoFallback) {
+            throw new Error((result && result.error) || 'SDK 引擎返回失败');
+          }
+          logger.warn('[引擎切换] SDK 返回失败,降级 agentic/legacy', {
+            sessionId,
+            reason: result && result.error
+          });
+          fallbackUsed = true;
+          result = null;
+        }
+      } catch (err) {
+        if (!autoFallback) throw err;
+        logger.warn('[引擎切换] SDK 抛异常,降级 agentic/legacy', {
+          sessionId,
+          err: err.message
+        });
+        fallbackUsed = true;
+        result = null;
+      }
+    }
+
+    // ============================================
+    // Agentic 引擎(SDK 未启用或失败时进入)
+    // ============================================
+    if (!result && useAgentic) {
+      engineUsed = fallbackUsed ? 'agentic-after-sdk' : 'agentic';
       try {
         result = await agenticEngine.processQuery(
           query,
@@ -356,6 +397,7 @@ async function handleQuery(sessionId, query, context = {}) {
             reason: result && result.error
           });
           fallbackUsed = true;
+          result = null;
         }
       } catch (err) {
         if (!autoFallback) throw err;
@@ -364,11 +406,21 @@ async function handleQuery(sessionId, query, context = {}) {
           err: err.message
         });
         fallbackUsed = true;
+        result = null;
       }
     }
 
-    if (fallbackUsed || !useAgentic) {
-      engineUsed = fallbackUsed ? 'legacy-after-agentic' : 'legacy';
+    // ============================================
+    // Legacy 引擎(最后兜底)
+    // ============================================
+    if (!result) {
+      if (fallbackUsed) {
+        engineUsed = useAgentSdk
+          ? (useAgentic ? 'legacy-after-agentic' : 'legacy-after-sdk')
+          : 'legacy-after-agentic';
+      } else {
+        engineUsed = 'legacy';
+      }
       // 【Phase 3 · T3c】把 fallbackUsed 写入 context,便于 nl2sqlEngine 写审计
       context.fallbackUsed = fallbackUsed;
       result = await nl2sqlEngine.processQuery(
@@ -383,8 +435,9 @@ async function handleQuery(sessionId, query, context = {}) {
     // 附加引擎标记给前端和审计日志(前端可忽略,审计写入 query_history.fallback_used)
     const tagged = { ...(result || {}), engineUsed, fallbackUsed };
 
-    // 持久化消息（仅 agentic 路径；legacy 引擎在 nl2sqlEngine 内部已自行落库）
-    if (engineUsed === 'agentic') {
+    // 持久化消息(仅 agentic 路径;legacy 引擎在 nl2sqlEngine 内部已自行落库)
+    // 批次 1: agent-sdk 路径暂不落库,等批次 2 真实数据上线再启用持久化
+    if (engineUsed === 'agentic' || engineUsed === 'agentic-after-sdk') {
       await persistAgenticMessages(sessionId, query, tagged);
     }
 

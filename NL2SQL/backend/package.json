@@ -15,6 +15,7 @@
     "test:phase-data": "node test/run-all.js --phase=data"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.133",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "dayjs": "^1.11.10",
@@ -25,7 +26,8 @@
     "node-sql-parser": "^5.4.0",
     "sqlite3": "^5.1.6",
     "uuid": "^9.0.0",
-    "vectordb": "^0.4.0"
+    "vectordb": "^0.4.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

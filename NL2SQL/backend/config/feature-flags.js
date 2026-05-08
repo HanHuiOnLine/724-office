@@ -122,6 +122,28 @@ const featureFlags = {
    * 默认 true (紧急回滚时设 FF_UNIFIED_RANKER=false 回退到老 Set+slice(0,5) 行为)
    */
   UNIFIED_RANKER: process.env.FF_UNIFIED_RANKER === 'false' ? false : true,
+
+  // ============================================
+  // Agent SDK 引擎(批次 1)
+  // ============================================
+
+  /**
+   * 【批次 1】是否启用 Claude Agent SDK 引擎(优先级最高的引擎路径)
+   * 启用后 sseHandler.handleQuery 会优先走 agentSdkEngine,失败自动降级到 agentic / legacy
+   * 默认关闭,通过 FF_USE_AGENT_SDK=true 打开
+   */
+  USE_AGENT_SDK: process.env.FF_USE_AGENT_SDK === 'true' || false,
+
+  /**
+   * 【批次 1】SDK 引擎灰度比例(0-100,基于 userId 稳定哈希)
+   * 0=关闭,100=全量;FF_USE_AGENT_SDK 必须同时为 true 才生效
+   * 仅控制是否进入 SDK 路径,失败仍按 fallback 链降级
+   */
+  AGENT_SDK_GRAY_PCT: (() => {
+    const raw = parseInt(process.env.FF_AGENT_SDK_GRAY_PCT || '0', 10);
+    if (Number.isNaN(raw)) return 0;
+    return Math.max(0, Math.min(100, raw));
+  })(),
   
   // ============================================
   // 全局开关
@@ -215,8 +237,47 @@ function shouldUseLayeredSchema() {
 }
 
 /**
+ * 【批次 1】基于 userId 的稳定哈希,用于 SDK 灰度判定
+ *
+ * 同一 userId 多次进同一引擎,避免会话内引擎切换造成的体感不一致
+ * 算法选 djb2 简化版,字符串可空(走 'anonymous')
+ *
+ * @param {string} s
+ * @returns {number} 非负 int
+ */
+function simpleHash(s) {
+  let h = 0;
+  const str = String(s == null ? '' : s);
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h) + str.charCodeAt(i);
+    h |= 0; // 强制 32 位
+  }
+  return Math.abs(h);
+}
+
+/**
+ * 【批次 1】判定本次请求是否走 SDK 引擎
+ *
+ * 三步走:
+ *   1. FF_USE_AGENT_SDK 总闸,关则一律 false
+ *   2. AGENT_SDK_GRAY_PCT >= 100 全开;<= 0 全关
+ *   3. 中间值按 simpleHash(userId) % 100 命中比例
+ *
+ * @param {string|null|undefined} userId
+ * @returns {boolean}
+ */
+function useAgentSdk(userId) {
+  if (featureFlags.DISABLE_ALL_FEATURES) return false;
+  if (!featureFlags.USE_AGENT_SDK) return false;
+  const pct = featureFlags.AGENT_SDK_GRAY_PCT;
+  if (pct >= 100) return true;
+  if (pct <= 0) return false;
+  return simpleHash(userId || 'anonymous') % 100 < pct;
+}
+
+/**
  * 获取当前启用的Phase列表
- * 
+ *
  * @returns {Array<string>} 启用的Phase列表
  */
 function getEnabledPhases() {
@@ -280,14 +341,18 @@ function logFeatureFlags() {
 module.exports = {
   // 功能开关值
   ...featureFlags,
-  
+
   // 检查函数
   isEnabled,
   getAllFlags,
   shouldUseAgenticWorkflow,
   shouldUseLayeredSchema,
   getEnabledPhases,
-  
+
+  // 【批次 1】SDK 引擎灰度判定
+  useAgentSdk,
+  simpleHash,
+
   // 日志
   logFeatureFlags
 };
